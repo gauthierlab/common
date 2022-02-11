@@ -537,37 +537,53 @@ def fed(path,label,fig):
 
     plt.xticks([])
 
-def get_n0(atoms):
-    # assumes standard VASP PBE pseudopotentials
+def get_zval(symbol,path,use_pbe):
+    pbe_dict = {'Pd': 10.0, 'Sb': 5.0, 'Cr': 12.0, 'Se': 6.0, 'Sn': 14.0, 'Li': 3.0, 'He': 2.0, 'Fr': 9.0, 'Cs': 9.0, 'Nd': 11.0, 'Ac': 11.0, 'Ho': 9.0, 'Eu': 8.0, 'Ni': 10.0, 'Po': 16.0, 'Am': 17.0, 'Be': 2.0, 'Sr': 10.0, 'Al': 3.0, 'Mg': 2.0, 'Ir': 9.0, 'Ge': 14.0, 'Sm': 11.0, 'Cu': 11.0, 'Ra': 10.0, 'Hf': 10.0, 'Co': 9.0, 'Fe': 8.0, 'Ga': 13.0, 'Ba': 10.0, 'Te': 6.0, 'U': 14.0, 'Tb': 9.0, 'I': 7.0, 'Er': 9.0, 'N': 5.0, 'Rn': 8.0, 'Ca': 10.0, 'Nb': 13.0, 'S': 6.0, 'Tl': 13.0, 'F': 7.0, 'O': 6.0, 'Ta': 11.0, 'Pb': 14.0, 'H': 1.0, 'Zn': 12.0, 'Na': 7.0, 'Pu': 16.0, 'Gd': 9.0, 'Pt': 10.0, 'Sc': 11.0, 'V': 13.0, 'Lu': 9.0, 'Dy': 9.0, 'Pa': 13.0, 'Si': 4.0, 'Ag': 11.0, 'Kr': 8.0, 'Pm': 11.0, 'Tc': 13.0, 'Ar': 8.0, 'Rb': 9.0, 'Au': 11.0, 'W': 12.0, 'Ne': 8.0, 'At': 7.0, 'Np': 15.0, 'Tm': 9.0, 'As': 5.0, 'Hg': 12.0, 'K': 9.0, 'Br': 7.0, 'Os': 8.0, 'Yb': 8.0, 'Cd': 12.0, 'Cm': 18.0, 'Pr': 11.0, 'Ru': 14.0, 'Mo': 14.0, 'In': 13.0, 'Cl': 7.0, 'La': 11.0, 'Ce': 12.0, 'C': 4.0, 'Th': 12.0, 'B': 3.0, 'Y': 11.0, 'Mn': 13.0, 'Bi': 15.0, 'Re': 7.0, 'Xe': 8.0, 'Rh': 15.0, 'Zr': 12.0, 'Ti': 12.0, 'P': 5.0}
+    if use_pbe:
+        return pbe_dict[symbol]
+    # else:
+        # out = greplines('grep ZVAL %s/POTCAR'%path)[0]
+        # return float(out.split()[5])
+
+
+def get_n0(path,use_pbe = True):
+    from ase.io import read
+    import os
+    if use_pbe:
+        print('assuming standard PBE POTCAR')
+    files = ['CONTCAR','XDATCAR','OUTCAR','vasprun.xml','POSCAR']
+    geometry_present = False
+    i = 0
+    for file in files:
+        if os.path.exists('%s/%s'%(path,file)):
+            geometry_present=True
+            break
+        i += 1
+    if not geometry_present:
+        print('no geometry file present, abort')
+        exit()
     n0 = 0
+    atoms = read('%s/%s'%(path,files[i]))
     for atom in atoms:
-        if atom.symbol == 'Cu':
-            n0 += 11
-        elif atom.symbol == 'O':
-            n0 += 6
-        elif atom.symbol == 'C':
-            n0 += 4
-        elif atom.symbol == 'H':
-            n0 += 1
+        n0 += get_zval(atom.symbol,path,use_pbe)
     return n0
 
 def get_omega(path):
     from ase.io import read
+    import os
     # calculate the grand canonical energy given a path
     # run save_space.py first
-    e = read('%s/lastimage.traj'%path).get_potential_energy()
+    if not os.path.exists('%s/OUTCAR'%path):
+        print('no OUTCAR in directory')
+        exit()
+    e = read('%s/OUTCAR'%path).get_potential_energy()
+    nel = float(greplines('grep NELECT %s/OUTCAR'%path)[0].split()[2])
+    n0 = get_n0(path)
+    out1 = greplines('grep fermi %s/OUTCAR | tail -n 1'%path)
+    fermi = float(out1[0].split()[2])
+    q = nel-n0
+    # print(path,q,fermi)
 
-    f = open('%s/nel.txt'%path,'r')
-    nel = float(f.readlines()[0].rstrip())
-    f.close()
-
-    q = nel-get_n0(read('%s/lastimage.traj'%path))
-
-    f = open('%s/fermi.txt'%path,'r')
-    fermi = float(f.readlines()[0].rstrip())
-    f.close()
-
-    print(path,q,fermi)
     return e-q*fermi
 
 def match_cell(ref_atoms,change_atoms,lower_vac,anchor_atom=None):
