@@ -18,9 +18,11 @@
 # get_dos(path)
 # get_parab used by the fed function
 # fed(path, label, fig)
-# get_n0(atoms)
-# get_omega(path)
+# get_n0(path,use_pbe = True):
+# get_omega(path):
 # match_cell(ref_atoms,change_atoms,lower_vac,anchor_atom=None)
+# fmax(atoms):
+# set_pot(atoms,calc,pot_des,tolerance=0.02):
 
 
 def get_irr_kpts(atoms,kpts,is_shift=[0,0,0]):
@@ -606,3 +608,101 @@ def match_cell(ref_atoms,change_atoms,lower_vac,anchor_atom=None):
     for atom in change_atoms:
         atom.z -= zdiff
     return change_atoms
+
+def fmax(atoms):
+    # given an atoms object, return the maximum force on
+    # an unconstrained atom
+    unconstrained = [atom.index for atom in atoms if atom.index not in list(atoms.constraints[0].index)]
+    ftemp = []
+    for ind in unconstrained:
+        f = atoms.get_forces()[ind]
+        ftemp.append((f[0]**2+f[1]**2+f[2]**2)**0.5)
+    ftemp.sort()
+    return ftemp[-1]
+
+def set_pot(atoms,calc,pot_des,tolerance=0.02):
+    # determine NELECT required to have potential=pot_des
+    calc.bool_params['lcharg'] = False
+    calc.int_params['ichain'] = 0
+    calc.bool_params['lwave'] = True
+    calc.int_params['nsw'] = 0
+    calc.exp_params['ediff'] = 1.0e-4
+
+    # previous optimization was done, use that as starting point
+    if os.path.isfile('nelect_data.pkl') and os.stat('nelect_data.pkl').st_size != 0:
+        nel_data = pickle.load(open('./nelect_data.pkl','rb'))
+        calc.float_params['nelect'] = nel_data['nelect'][-1]
+        atoms.set_calculator(calc)
+    else:
+        nel_data = {}
+        nel_data['nelect'] = []
+        nel_data['potential'] = []
+        nel_data['energy'] = []
+        print('Running the first single point to get PZC')
+        atoms.get_potential_energy()
+        
+        # store info from the first single point
+        nel_data['potential'].append(get_wf_implicit('./')-4.43)
+        nel_data['energy'].append(atoms.get_potential_energy())
+        nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
+        nel_data['nelect'].append(nel_out)
+        pickle.dump(nel_data,open('nelect_data.pkl','wb'))
+
+    # no need to run further optimization if you're already at the desired potential
+    if abs(nel_data['potential'][-1]-pot_des) < tolerance:
+        return
+
+    if len(nel_data['nelect']) < 2:
+        # only one data point - do another single point with slightly more
+        # electrons to get an initial gradient for newton's method
+        # initial guess for C: 1 e/V
+        calc.float_params['nelect'] = nel_data['nelect'][-1]+(nel_data['potential'][-1]-pot_des)
+        atoms.set_calculator(calc)
+        atoms.get_potential_energy()
+
+        nel_data['potential'].append(get_wf_implicit('./')-4.43)
+        nel_data['energy'].append(atoms.get_potential_energy())
+        nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
+        nel_data['nelect'].append(nel_out)
+        pickle.dump(nel_data,open('nelect_data.pkl','wb'))
+
+    #start the optimization, initialize vars
+    while abs(nel_data['potential'][-1]-pot_des) > tolerance:
+        # Newton's method to optimize NELECT
+        grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
+        grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
+        if abs(grad_denom) < 0.001:
+            diff = 0.01
+        else:
+            grad = grad_numer/grad_denom
+            y = nel_data['potential'][-1]-pot_des
+            diff = abs(y)**2/(y*grad)
+
+        # don't take too big of a step ..
+        # can happen if two subsequent steps are too close together
+        if diff > 5.0:
+            diff = 0.75
+        elif diff < -5.0:
+            diff = -0.75
+
+        # update nelect
+        new_nel = nel_data['nelect'][-1] - diff
+
+        #check if nelect is nan
+        if math.isnan(new_nel):
+            print('Error: Check NELECT (nan)')
+            sys.exit()
+
+        # check guess from newton's method
+        calc.float_params['nelect'] = new_nel
+        atoms.set_calculator(calc)
+        atoms.get_potential_energy()
+
+        nel_data['potential'].append(get_wf_implicit('./')-4.43)
+        nel_data['energy'].append(atoms.get_potential_energy())
+        nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
+        nel_data['nelect'].append(nel_out)
+        pickle.dump(nel_data,open('nelect_data.pkl','wb'))
+
+    calc.bool_params['lwave']=True
+
