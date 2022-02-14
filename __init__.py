@@ -610,6 +610,8 @@ def match_cell(ref_atoms,change_atoms,lower_vac,anchor_atom=None):
     return change_atoms
 
 def fmax(atoms):
+    import os,sys,pickle,math
+    from ase.io import read
     # given an atoms object, return the maximum force on
     # an unconstrained atom
     unconstrained = [atom.index for atom in atoms if atom.index not in list(atoms.constraints[0].index)]
@@ -621,6 +623,8 @@ def fmax(atoms):
     return ftemp[-1]
 
 def set_pot(atoms,calc,pot_des,tolerance=0.02):
+    import os,sys,pickle,math
+    from ase.io import read
     # determine NELECT required to have potential=pot_des
     calc.bool_params['lcharg'] = False
     calc.int_params['ichain'] = 0
