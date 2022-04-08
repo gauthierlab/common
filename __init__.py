@@ -720,17 +720,17 @@ def get_closest(ref,atoms,ind,mic=True):
 		pbc=(False,False,False)
 	else:
 		pbc=(True,True,True)
-    dists = []
-    for atom in atoms:
-        if atom.symbol != ref[ind].symbol:
-            continue
-        dist = get_distances(p1=(atom.x,atom.y,atom.z),
+	dists = []
+	for atom in atoms:
+		if atom.symbol != ref[ind].symbol:
+			continue
+		dist = get_distances(p1=(atom.x,atom.y,atom.z),
                             p2=(ref[ind].x,ref[ind].y,ref[ind].z),
                             cell=atoms.cell,
                             pbc=pbc)[1][0][0]
-        dists.append((atom.index,dist))
-    dists.sort(key=lambda x:x[-1])
-    return dists[0][0]
+		dists.append((atom.index,dist))
+	dists.sort(key=lambda x:x[-1])
+	return dists[0][0]
 
 def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 	from ase.io import read
