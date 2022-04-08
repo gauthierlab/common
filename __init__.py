@@ -712,16 +712,23 @@ def set_pot(atoms,calc,pot_des,tolerance=0.02):
 
     calc.bool_params['lwave']=True
 
-def get_closest(ref,atoms,ind):
+def get_closest(ref,atoms,ind,mic=True):
+	from ase.geometry import get_distances
     # find the index of the closest atom between two states
     # making sure that the symbol is the same
+	if not mic:
+		pbc=(False,False,False)
+	else:
+		pbc=(True,True,True)
     dists = []
     for atom in atoms:
         if atom.symbol != ref[ind].symbol:
             continue
-        dists.append((atom.index,((atom.z-ref[ind].z)**2+
-                                    (atom.y-ref[ind].y)**2+
-                                    (atom.x-ref[ind].x)**2)**0.5))
+        dist = get_distances(p1=(atom.x,atom.y,atom.z),
+                            p2=(ref[ind].x,ref[ind].y,ref[ind].z),
+                            cell=atoms.cell,
+                            pbc=pbc)[1][0][0]
+        dists.append((atom.index,dist))
     dists.sort(key=lambda x:x[-1])
     return dists[0][0]
 
