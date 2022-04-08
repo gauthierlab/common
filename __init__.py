@@ -23,6 +23,8 @@
 # match_cell(ref_atoms,change_atoms,lower_vac,anchor_atom=None)
 # fmax(atoms):
 # set_pot(atoms,calc,pot_des,tolerance=0.02):
+# get_closest(ref,atoms,ind):
+# reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 
 
 def get_irr_kpts(atoms,kpts,is_shift=[0,0,0]):
@@ -551,8 +553,8 @@ def get_zval(symbol,path,use_pbe):
 def get_n0(path,use_pbe = True):
     from ase.io import read
     import os
-    if use_pbe:
-        print('assuming standard PBE POTCAR')
+    # if use_pbe:
+        # print('assuming standard PBE POTCAR')
     files = ['CONTCAR','XDATCAR','OUTCAR','vasprun.xml','POSCAR']
     geometry_present = False
     i = 0
@@ -596,7 +598,7 @@ def match_cell(ref_atoms,change_atoms,lower_vac,anchor_atom=None):
         # rather than change positions according to a vacuum,
         # reference everything to the z-position of an atom
         # in the reference atoms object
-        zdiff = change_atoms[anchor_atom] - ref_atoms[anchor_atom]
+        zdiff = change_atoms[anchor_atom].z - ref_atoms[anchor_atom].z
         for atom in change_atoms:
             atom.z -= zdiff
         return change_atoms
@@ -710,3 +712,29 @@ def set_pot(atoms,calc,pot_des,tolerance=0.02):
 
     calc.bool_params['lwave']=True
 
+def get_closest(ref,atoms,ind):
+    # find the index of the closest atom between two states
+    # making sure that the symbol is the same
+    dists = []
+    for atom in atoms:
+        if atom.symbol != ref[ind].symbol:
+            continue
+        dists.append((atom.index,((atom.z-ref[ind].z)**2+
+                                    (atom.y-ref[ind].y)**2+
+                                    (atom.x-ref[ind].x)**2)**0.5))
+    dists.sort(key=lambda x:x[-1])
+    return dists[0][0]
+
+def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
+	from ase.io import read
+	# used to reindex atoms in reindex_atoms to match those in 
+	# ref_atoms. Necessary for e.g. NEB interpolation.
+	for atom in reindex_atoms:
+		if atom.index in manual_skip_atoms:
+			continue
+		closest_ind = get_closest(ref_atoms,reindex_atoms,atom.index)
+		if atom.index == closest_ind:
+			continue
+		else:
+			pos_swap(reindex_atoms,closest_ind,atom.index)
+	return reindex_atoms
