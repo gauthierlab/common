@@ -162,8 +162,12 @@ def get_wf_implicit(path):
     import os,sys,subprocess
     import numpy as np
     from ase.io import read
-    out1 = greplines('grep fermi '+path+'/OUTCAR | tail -n 1')
-    fermi = float(out1[0].split()[2])
+    if not os.path.exists('%s/OUTCAR'%path):
+        print('No OUTCAR found -- use vasprun.xml instead')
+        fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
+    else:
+        out1 = greplines('grep fermi '+path+'/OUTCAR | tail -n 1')
+        fermi = float(out1[0].split()[2])
 
     try:
         out2 = greplines('grep FERMI_SHIFT '+path+'/opt.log | tail -n 1')
