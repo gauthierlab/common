@@ -577,14 +577,18 @@ def get_omega(path):
     import os
     # calculate the grand canonical energy given a path
     # run save_space.py first
-    if not os.path.exists('%s/OUTCAR'%path):
-        print('no OUTCAR in directory')
-        exit()
-    e = read('%s/OUTCAR'%path).get_potential_energy()
-    nel = float(greplines('grep NELECT %s/OUTCAR'%path)[0].split()[2])
     n0 = get_n0(path)
-    out1 = greplines('grep fermi %s/OUTCAR | tail -n 1'%path)
-    fermi = float(out1[0].split()[2])
+
+    if not os.path.exists('%s/OUTCAR'%path):
+        print('no OUTCAR in directory, trying vasprun.xml instead')
+        e = read('%s/vasprun.xml'%path).get_potential_energy()
+        nel = float(greplines('grep NELECT %s/vasprun.xml'%path)[0].split()[-1][:-4])
+        fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
+    else:
+        e = read('%s/OUTCAR'%path).get_potential_energy()
+        nel = float(greplines('grep NELECT %s/OUTCAR'%path)[0].split()[2])
+        out1 = greplines('grep fermi %s/OUTCAR | tail -n 1'%path)
+        fermi = float(out1[0].split()[2])
     q = nel-n0
     # print(path,q,fermi)
 
