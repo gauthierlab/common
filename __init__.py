@@ -50,7 +50,7 @@ def get_irr_kpts(atoms,kpts,is_shift=[0,0,0]):
     # return len(np.unique(mapping))
 
 
-def get_line(x,y,extra=0.1,extramin=0.0,extraplus=0.0):
+def get_line(x,y,extra=0.1,extramin=0.0,extraplus=0.0,return_mae=False):
     import sys,subprocess
     import numpy as np
     # returns a np array for the x and y axis of a line
@@ -58,7 +58,13 @@ def get_line(x,y,extra=0.1,extramin=0.0,extraplus=0.0):
     xax = np.linspace(min(x)-extra-extramin,max(x)+extra+extraplus,10)
     a,b = np.polyfit(x,y,1)
     yax = a*xax+b
-    return xax,yax,a,b
+    if not return_mae:
+        return xax,yax,a,b
+    mae = 0
+    for i in range(len(x)):
+        mae += abs(y[i]-(a*x[i]+b))
+    mae = mae/len(x)
+    return xax,yax,a,b,mae
 
 
 def greplines(cmd):
