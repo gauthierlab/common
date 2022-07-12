@@ -761,6 +761,7 @@ def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 	return reindex_atoms
 
 def const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,fmax=0.05):
+	import os,sys,pickle,math
     # script to optimize geometry at constant potential
     # expects an atoms object, a calculator object, and a desired potential
     # optional inputs:
