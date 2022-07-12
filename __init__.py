@@ -25,6 +25,7 @@
 # set_pot(atoms,calc,desired_U,tolerance=0.02):
 # get_closest(ref,atoms,ind):
 # reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
+# const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,fmax=0.05):
 
 
 def get_irr_kpts(atoms,kpts,is_shift=[0,0,0]):
