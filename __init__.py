@@ -22,7 +22,7 @@
 # get_omega(path):
 # match_cell(ref_atoms,change_atoms,lower_vac,anchor_atom=None)
 # fmax(atoms):
-# set_pot(atoms,calc,pot_des,tolerance=0.02):
+# set_pot(atoms,calc,desired_U,tolerance=0.02):
 # get_closest(ref,atoms,ind):
 # reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 
@@ -637,10 +637,10 @@ def fmax(atoms):
     ftemp.sort()
     return ftemp[-1]
 
-def set_pot(atoms,calc,pot_des,tolerance=0.02,she_U=4.43):
+def set_pot(atoms,calc,desired_U,tolerance=0.02,she_U=4.43):
     import os,sys,pickle,math
     from ase.io import read
-    # determine NELECT required to have potential=pot_des
+    # determine NELECT required to have potential=desired_U
     calc.bool_params['lcharg'] = False
     calc.int_params['ichain'] = 0
     calc.bool_params['lwave'] = True
@@ -668,14 +668,14 @@ def set_pot(atoms,calc,pot_des,tolerance=0.02,she_U=4.43):
         pickle.dump(nel_data,open('nelect_data.pkl','wb'))
 
     # no need to run further optimization if you're already at the desired potential
-    if abs(nel_data['potential'][-1]-pot_des) < tolerance:
+    if abs(nel_data['potential'][-1]-desired_U) < tolerance:
         return
 
     if len(nel_data['nelect']) < 2:
         # only one data point - do another single point with slightly more
         # electrons to get an initial gradient for newton's method
         # initial guess for C: 1 e/V
-        calc.float_params['nelect'] = nel_data['nelect'][-1]+(nel_data['potential'][-1]-pot_des)
+        calc.float_params['nelect'] = nel_data['nelect'][-1]+(nel_data['potential'][-1]-desired_U)
         atoms.set_calculator(calc)
         atoms.get_potential_energy()
 
@@ -686,7 +686,7 @@ def set_pot(atoms,calc,pot_des,tolerance=0.02,she_U=4.43):
         pickle.dump(nel_data,open('nelect_data.pkl','wb'))
 
     #start the optimization, initialize vars
-    while abs(nel_data['potential'][-1]-pot_des) > tolerance:
+    while abs(nel_data['potential'][-1]-desired_U) > tolerance:
         # Newton's method to optimize NELECT
         grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
         grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
@@ -694,7 +694,7 @@ def set_pot(atoms,calc,pot_des,tolerance=0.02,she_U=4.43):
             diff = 0.01
         else:
             grad = grad_numer/grad_denom
-            y = nel_data['potential'][-1]-pot_des
+            y = nel_data['potential'][-1]-desired_U
             diff = abs(y)**2/(y*grad)
 
         # don't take too big of a step ..
@@ -759,7 +759,7 @@ def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 			pos_swap(reindex_atoms,closest_ind,atom.index)
 	return reindex_atoms
 
-def const_U_relax(atoms,calc,pot_des,tolerance=0.02,she_U=4.43,fmax=0.05):
+def const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,fmax=0.05):
     # script to optimize geometry at constant potential
     # expects an atoms object, a calculator object, and a desired potential
     # optional inputs:
@@ -774,7 +774,7 @@ def const_U_relax(atoms,calc,pot_des,tolerance=0.02,she_U=4.43,fmax=0.05):
 	while converged == 0:
 		i += 1
 		# first optimize NELECT
-		set_pot(atoms,calc,pot_des,tolerance=tolerance,she_U=she_U)
+		set_pot(atoms,calc,desired_U,tolerance=tolerance,she_U=she_U)
 		calc.int_params['nsw'] = 300
 		calc.bool_params['lwave'] = True
 		nel_data = pickle.load(open('./nelect_data.pkl','rb'))
@@ -793,7 +793,7 @@ def const_U_relax(atoms,calc,pot_des,tolerance=0.02,she_U=4.43,fmax=0.05):
 		os.system('cp CONTCAR POSCAR')
 		atoms.write('iter%02d.traj'%i)
 
-		if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-she_U - pot_des) < fmax:
+		if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-she_U - desired_U) < fmax:
 			converged = 1
 		else:
 			print('Potential not yet converged: %.2f'%(float(get_wf_implicit('./'))-she_U))
