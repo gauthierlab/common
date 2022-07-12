@@ -189,7 +189,6 @@ def get_wf_explicit(path):
         f = open(path+'/wf.out')
         lines = f.readlines()
         return float(lines[0].rstrip())
-    
 
 def get_chgcar(path,locpot=False,pavg=False):
     # get CHGCAR data as a numpy array
@@ -638,7 +637,7 @@ def fmax(atoms):
     ftemp.sort()
     return ftemp[-1]
 
-def set_pot(atoms,calc,pot_des,tolerance=0.02):
+def set_pot(atoms,calc,pot_des,tolerance=0.02,she_U=4.43):
     import os,sys,pickle,math
     from ase.io import read
     # determine NELECT required to have potential=pot_des
@@ -662,7 +661,7 @@ def set_pot(atoms,calc,pot_des,tolerance=0.02):
         atoms.get_potential_energy()
         
         # store info from the first single point
-        nel_data['potential'].append(get_wf_implicit('./')-4.43)
+        nel_data['potential'].append(get_wf_implicit('./')-she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -680,7 +679,7 @@ def set_pot(atoms,calc,pot_des,tolerance=0.02):
         atoms.set_calculator(calc)
         atoms.get_potential_energy()
 
-        nel_data['potential'].append(get_wf_implicit('./')-4.43)
+        nel_data['potential'].append(get_wf_implicit('./')-she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -718,7 +717,7 @@ def set_pot(atoms,calc,pot_des,tolerance=0.02):
         atoms.set_calculator(calc)
         atoms.get_potential_energy()
 
-        nel_data['potential'].append(get_wf_implicit('./')-4.43)
+        nel_data['potential'].append(get_wf_implicit('./')-she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -759,3 +758,44 @@ def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 		else:
 			pos_swap(reindex_atoms,closest_ind,atom.index)
 	return reindex_atoms
+
+def const_U_relax(atoms,calc,pot_des,tolerance=0.02,she_U=4.43,fmax=0.05):
+    # script to optimize geometry at constant potential
+    # expects an atoms object, a calculator object, and a desired potential
+    # optional inputs:
+    #   tolerance: tolerance on the potential in V vs SHE
+    #   she_U: the potential of the SHE electrode
+    #   fmax: the maximum force before geometry is considered optimized in eV/A
+    
+    atoms.set_calculator(calc)
+
+    converged = 0
+    i = 0
+	while converged == 0:
+		i += 1
+		# first optimize NELECT
+		set_pot(atoms,calc,pot_des,tolerance=tolerance,she_U=she_U)
+		calc.int_params['nsw'] = 300
+		calc.bool_params['lwave'] = True
+		nel_data = pickle.load(open('./nelect_data.pkl','rb'))
+
+		# geometry optimize using VASP optimizer
+		print('Starting geometry optimization, iteration %i'%i)
+		atoms.get_potential_energy() # calls VASP
+
+		# update NELECT history
+		nel_data['potential'].append(get_wf_implicit('./')-she_U)
+		nel_data['energy'].append(atoms.get_potential_energy())
+		nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
+		nel_data['nelect'].append(nel_out)
+		pickle.dump(nel_data,open('nelect_data.pkl','wb'))
+
+		os.system('cp CONTCAR POSCAR')
+		atoms.write('iter%02d.traj'%i)
+
+		if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-she_U - pot_des) < fmax:
+			converged = 1
+		else:
+			print('Potential not yet converged: %.2f'%(float(get_wf_implicit('./'))-she_U))
+
+	print('\nFinished!\n')
