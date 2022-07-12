@@ -769,10 +769,10 @@ def const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,fmax=0.05):
     #   she_U: the potential of the SHE electrode
     #   fmax: the maximum force before geometry is considered optimized in eV/A
     
-    atoms.set_calculator(calc)
+	atoms.set_calculator(calc)
 
-    converged = 0
-    i = 0
+	converged = 0
+	i = 0
 	while converged == 0:
 		i += 1
 		# first optimize NELECT
