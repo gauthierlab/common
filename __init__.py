@@ -760,7 +760,7 @@ def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 			pos_swap(reindex_atoms,closest_ind,atom.index)
 	return reindex_atoms
 
-def const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,fmax=0.05):
+def const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,ediffg=0.05):
 	import os,sys,pickle,math
     # script to optimize geometry at constant potential
     # expects an atoms object, a calculator object, and a desired potential
@@ -795,7 +795,7 @@ def const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,fmax=0.05):
 		os.system('cp CONTCAR POSCAR')
 		atoms.write('iter%02d.traj'%i)
 
-		if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-she_U - desired_U) < fmax:
+		if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-she_U - desired_U) < ediffg:
 			converged = 1
 		else:
 			print('Potential not yet converged: %.2f'%(float(get_wf_implicit('./'))-she_U))
