@@ -27,6 +27,8 @@
 # reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 # const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,fmax=0.05):
 
+_she_U=4.43
+
 
 def get_irr_kpts(atoms,kpts,is_shift=[0,0,0]):
     # returns the number of irreducible kpoints
@@ -638,7 +640,7 @@ def fmax(atoms):
     ftemp.sort()
     return ftemp[-1]
 
-def set_pot(atoms,calc,desired_U,tolerance=0.02,she_U=4.43):
+def set_pot(atoms,calc,desired_U,tolerance=0.02):
     import os,sys,pickle,math
     from ase.io import read
     # determine NELECT required to have potential=desired_U
@@ -662,7 +664,7 @@ def set_pot(atoms,calc,desired_U,tolerance=0.02,she_U=4.43):
         atoms.get_potential_energy()
         
         # store info from the first single point
-        nel_data['potential'].append(get_wf_implicit('./')-she_U)
+        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -680,7 +682,7 @@ def set_pot(atoms,calc,desired_U,tolerance=0.02,she_U=4.43):
         atoms.set_calculator(calc)
         atoms.get_potential_energy()
 
-        nel_data['potential'].append(get_wf_implicit('./')-she_U)
+        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -718,7 +720,7 @@ def set_pot(atoms,calc,desired_U,tolerance=0.02,she_U=4.43):
         atoms.set_calculator(calc)
         atoms.get_potential_energy()
 
-        nel_data['potential'].append(get_wf_implicit('./')-she_U)
+        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -760,7 +762,7 @@ def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 			pos_swap(reindex_atoms,closest_ind,atom.index)
 	return reindex_atoms
 
-def const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,ediffg=0.05):
+def const_U_relax(atoms,calc,desired_U,tolerance=0.02,ediffg=0.05):
 	import os,sys,pickle,math
     # script to optimize geometry at constant potential
     # expects an atoms object, a calculator object, and a desired potential
@@ -776,7 +778,7 @@ def const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,ediffg=0.05):
 	while converged == 0:
 		i += 1
 		# first optimize NELECT
-		set_pot(atoms,calc,desired_U,tolerance=tolerance,she_U=she_U)
+		set_pot(atoms,calc,desired_U,tolerance=tolerance)
 		calc.int_params['nsw'] = 300
 		calc.bool_params['lwave'] = True
 		nel_data = pickle.load(open('./nelect_data.pkl','rb'))
@@ -786,7 +788,7 @@ def const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,ediffg=0.05):
 		atoms.get_potential_energy() # calls VASP
 
 		# update NELECT history
-		nel_data['potential'].append(get_wf_implicit('./')-she_U)
+		nel_data['potential'].append(get_wf_implicit('./')-_she_U)
 		nel_data['energy'].append(atoms.get_potential_energy())
 		nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
 		nel_data['nelect'].append(nel_out)
@@ -795,9 +797,9 @@ def const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,ediffg=0.05):
 		os.system('cp CONTCAR POSCAR')
 		atoms.write('iter%02d.traj'%i)
 
-		if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-she_U - desired_U) < ediffg:
+		if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < ediffg:
 			converged = 1
 		else:
-			print('Potential not yet converged: %.2f'%(float(get_wf_implicit('./'))-she_U))
+			print('Potential not yet converged: %.2f'%(float(get_wf_implicit('./'))-_she_U))
 
 	print('\nFinished!\n')
