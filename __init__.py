@@ -25,8 +25,9 @@
 # set_pot(atoms,calc,desired_U,tolerance=0.02):
 # get_closest(ref,atoms,ind):
 # reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
-# const_U_relax(atoms,calc,desired_U,tolerance=0.02,she_U=4.43,fmax=0.05):
+# const_U_relax(atoms,calc,desired_U,tolerance=0.02,ediffg=0.05):
 
+# define the SHE reference potential
 _she_U=4.43
 
 
@@ -672,6 +673,12 @@ def set_pot(atoms,calc,desired_U,tolerance=0.02):
 
     # no need to run further optimization if you're already at the desired potential
     if abs(nel_data['potential'][-1]-desired_U) < tolerance:
+        if len(nel_data['potential'] > 2:
+            if abs(nel_data['potential'][-1]-nel_data['potential'][-2]) < 0.001:
+                # strange bug -- gets stuck, so update nelect by a tiny amount
+                # to force a new single point calculation
+                calc.float_params['nelect'] += 1e-3
+                return
         return
 
     if len(nel_data['nelect']) < 2:
@@ -768,7 +775,6 @@ def const_U_relax(atoms,calc,desired_U,tolerance=0.02,ediffg=0.05):
     # expects an atoms object, a calculator object, and a desired potential
     # optional inputs:
     #   tolerance: tolerance on the potential in V vs SHE
-    #   she_U: the potential of the SHE electrode
     #   fmax: the maximum force before geometry is considered optimized in eV/A
     
 	atoms.set_calculator(calc)
@@ -797,7 +803,7 @@ def const_U_relax(atoms,calc,desired_U,tolerance=0.02,ediffg=0.05):
 		os.system('cp CONTCAR POSCAR')
 		atoms.write('iter%02d.traj'%i)
 
-		if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < ediffg:
+		if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < tolerance:
 			converged = 1
 		else:
 			print('Potential not yet converged: %.2f'%(float(get_wf_implicit('./'))-_she_U))
