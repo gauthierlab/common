@@ -673,7 +673,7 @@ def set_pot(atoms,calc,desired_U,tolerance=0.02):
 
     # no need to run further optimization if you're already at the desired potential
     if abs(nel_data['potential'][-1]-desired_U) < tolerance:
-        if len(nel_data['potential'] > 2:
+        if len(nel_data['potential']) > 2:
             if abs(nel_data['potential'][-1]-nel_data['potential'][-2]) < 0.001:
                 # strange bug -- gets stuck, so update nelect by a tiny amount
                 # to force a new single point calculation
