@@ -30,6 +30,9 @@
 # define the SHE reference potential
 _she_U=4.43
 
+# tolerance for potential setting, in Volts
+_tolerance_U=0.02
+
 
 def get_irr_kpts(atoms,kpts,is_shift=[0,0,0]):
     # returns the number of irreducible kpoints
@@ -129,7 +132,7 @@ def get_wf_environ(path):
     from ase.io import read
     # check if environ was used
     try:
-	# grep log file for fermi level
+    # grep log file for fermi level
         test = subprocess.check_output("grep 'Environ Module' "+path+"/log",shell=True)
         out = subprocess.check_output("grep 'the Fermi energy is' "+path+"/log | tail -n 1",shell=True).split('\n')[-2]
         fermi = float(out.split()[-2])
@@ -641,7 +644,7 @@ def fmax(atoms):
     ftemp.sort()
     return ftemp[-1]
 
-def set_pot(atoms,calc,desired_U,tolerance=0.02):
+def set_pot(atoms,calc,desired_U):
     import os,sys,pickle,math
     from ase.io import read
     # determine NELECT required to have potential=desired_U
@@ -672,13 +675,13 @@ def set_pot(atoms,calc,desired_U,tolerance=0.02):
         pickle.dump(nel_data,open('nelect_data.pkl','wb'))
 
     # no need to run further optimization if you're already at the desired potential
-    if abs(nel_data['potential'][-1]-desired_U) < tolerance:
-        if len(nel_data['potential']) > 2:
-            if abs(nel_data['potential'][-1]-nel_data['potential'][-2]) < 0.001:
-                # strange bug -- gets stuck, so update nelect by a tiny amount
-                # to force a new single point calculation
-                calc.float_params['nelect'] += 1e-3
-                return
+    if abs(nel_data['potential'][-1]-desired_U) < _tolerance_U:
+        # if len(nel_data['potential']) > 2:
+            # if abs(nel_data['potential'][-1]-nel_data['potential'][-2]) < 0.001:
+                # # strange bug -- gets stuck, so update nelect by a tiny amount
+                # # to force a new single point calculation
+                # calc.float_params['nelect'] += 1e-3
+                # return
         return
 
     if len(nel_data['nelect']) < 2:
@@ -696,7 +699,7 @@ def set_pot(atoms,calc,desired_U,tolerance=0.02):
         pickle.dump(nel_data,open('nelect_data.pkl','wb'))
 
     #start the optimization, initialize vars
-    while abs(nel_data['potential'][-1]-desired_U) > tolerance:
+    while abs(nel_data['potential'][-1]-desired_U) > _tolerance_U:
         # Newton's method to optimize NELECT
         grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
         grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
@@ -736,76 +739,82 @@ def set_pot(atoms,calc,desired_U,tolerance=0.02):
     calc.bool_params['lwave']=True
 
 def get_closest(ref,atoms,ind,mic=True):
-	from ase.geometry import get_distances
+    from ase.geometry import get_distances
     # find the index of the closest atom between two states
     # making sure that the symbol is the same
-	if not mic:
-		pbc=(False,False,False)
-	else:
-		pbc=(True,True,True)
-	dists = []
-	for atom in atoms:
-		if atom.symbol != ref[ind].symbol:
-			continue
-		dist = get_distances(p1=(atom.x,atom.y,atom.z),
+    if not mic:
+        pbc=(False,False,False)
+    else:
+        pbc=(True,True,True)
+    dists = []
+    for atom in atoms:
+        if atom.symbol != ref[ind].symbol:
+            continue
+        dist = get_distances(p1=(atom.x,atom.y,atom.z),
                             p2=(ref[ind].x,ref[ind].y,ref[ind].z),
                             cell=atoms.cell,
                             pbc=pbc)[1][0][0]
-		dists.append((atom.index,dist))
-	dists.sort(key=lambda x:x[-1])
-	return dists[0][0]
+        dists.append((atom.index,dist))
+    dists.sort(key=lambda x:x[-1])
+    return dists[0][0]
 
 def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
-	from ase.io import read
-	# used to reindex atoms in reindex_atoms to match those in 
-	# ref_atoms. Necessary for e.g. NEB interpolation.
-	for atom in reindex_atoms:
-		if atom.index in manual_skip_atoms:
-			continue
-		closest_ind = get_closest(ref_atoms,reindex_atoms,atom.index)
-		if atom.index == closest_ind:
-			continue
-		else:
-			pos_swap(reindex_atoms,closest_ind,atom.index)
-	return reindex_atoms
+    from ase.io import read
+    # used to reindex atoms in reindex_atoms to match those in 
+    # ref_atoms. Necessary for e.g. NEB interpolation.
+    for atom in reindex_atoms:
+        if atom.index in manual_skip_atoms:
+            continue
+        closest_ind = get_closest(ref_atoms,reindex_atoms,atom.index)
+        if atom.index == closest_ind:
+            continue
+        else:
+            pos_swap(reindex_atoms,closest_ind,atom.index)
+    return reindex_atoms
 
-def const_U_relax(atoms,calc,desired_U,tolerance=0.02,ediffg=0.05):
-	import os,sys,pickle,math
+def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
+    import os,sys,pickle,math
     # script to optimize geometry at constant potential
     # expects an atoms object, a calculator object, and a desired potential
     # optional inputs:
     #   tolerance: tolerance on the potential in V vs SHE
     #   fmax: the maximum force before geometry is considered optimized in eV/A
     
-	atoms.set_calculator(calc)
+    atoms.set_calculator(calc)
 
-	converged = 0
-	i = 0
-	while converged == 0:
-		i += 1
-		# first optimize NELECT
-		set_pot(atoms,calc,desired_U,tolerance=tolerance)
-		calc.int_params['nsw'] = 300
-		calc.bool_params['lwave'] = True
-		nel_data = pickle.load(open('./nelect_data.pkl','rb'))
+    converged = 0
+    i = 0
+    while converged == 0:
+        i += 1
+        if i > 5:
+            print('Stuck in a loop')
+            exit()
+        # first optimize NELECT
+        set_pot(atoms,calc,desired_U)
+        calc.int_params['nsw'] = 300
+        calc.bool_params['lwave'] = True
+        nel_data = pickle.load(open('./nelect_data.pkl','rb'))
 
-		# geometry optimize using VASP optimizer
-		print('Starting geometry optimization, iteration %i'%i)
-		atoms.get_potential_energy() # calls VASP
+        # geometry optimize using VASP optimizer
+        print('Starting geometry optimization, iteration %i'%i)
+        atoms.get_potential_energy() # calls VASP
 
-		# update NELECT history
-		nel_data['potential'].append(get_wf_implicit('./')-_she_U)
-		nel_data['energy'].append(atoms.get_potential_energy())
-		nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
-		nel_data['nelect'].append(nel_out)
-		pickle.dump(nel_data,open('nelect_data.pkl','wb'))
+        # update NELECT history
+        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+        nel_data['energy'].append(atoms.get_potential_energy())
+        nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
+        nel_data['nelect'].append(nel_out)
+        pickle.dump(nel_data,open('nelect_data.pkl','wb'))
 
-		os.system('cp CONTCAR POSCAR')
-		atoms.write('iter%02d.traj'%i)
+        os.system('cp CONTCAR POSCAR')
+        atoms.write('iter%02d.traj'%i)
 
-		if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < tolerance:
-			converged = 1
-		else:
-			print('Potential not yet converged: %.2f'%(float(get_wf_implicit('./'))-_she_U))
+        if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < _tolerance_U:
+            converged = 1
+        else:
+            print('Not yet converged')
+            print('U = %.2f V vs SHE'%(float(get_wf_implicit('./'))-_she_U))
+            print('max force = %.2f'%fmax(atoms))
+        sys.stdout.flush()
 
-	print('\nFinished!\n')
+    print('\nFinished!\n')
