@@ -27,7 +27,8 @@
 # reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 # const_U_relax(atoms,calc,desired_U,tolerance=0.02,ediffg=0.05):
 
-# define the SHE reference potential
+# define the SHE reference potential -- can be set in your script
+# via e.g. "common._she_U = 4.6"
 _she_U=4.43
 
 # tolerance for potential setting, in Volts
@@ -780,6 +781,7 @@ def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
     #   tolerance: tolerance on the potential in V vs SHE
     #   fmax: the maximum force before geometry is considered optimized in eV/A
     
+    calc.float_params['ediffg'] = -1*ediffg
     atoms.set_calculator(calc)
 
     converged = 0
