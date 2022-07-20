@@ -1,10 +1,11 @@
 
-# package containing many of the scripts i've written - for ease of use
+# package containing many of the scripts I've written - for ease of use
 
 # list of dependencies:
 # ase; numpy; scipy; matplotlib; spglib; prettytable; pymatgen; 
 
-# list of functions:
+##################################################################################
+# list of functions: 
 # get_irr_kpts(atoms,kpts,is_shift=[0,0,0])
 # get_line(x,y,extra=0.1)
 # greplines(cmd)
@@ -26,13 +27,22 @@
 # get_closest(ref,atoms,ind):
 # reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
 # const_U_relax(atoms,calc,desired_U,tolerance=0.02,ediffg=0.05):
+# const_U_dimer(atoms,calc,desired_U,ediffg=0.05):
+# const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
+##################################################################################
 
-# define the SHE reference potential -- can be set in your script
-# via e.g. "common._she_U = 4.6"
+
+
+##################################################################################
+# Here are a few module wide constants that get used in various functions. You can
+# update them with e.g. "common._she_U = 4.6" or "common._tolerance_U = 0.01".
+
+# SHE reference potential
 _she_U=4.43
 
-# tolerance for potential setting, in Volts
+# tolerance criteria used when optimizing NELECT for a given potential, in Volts
 _tolerance_U=0.02
+##################################################################################
 
 
 def get_irr_kpts(atoms,kpts,is_shift=[0,0,0]):
@@ -774,13 +784,24 @@ def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
     return reindex_atoms
 
 def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
+    ############################################################################
+    # Script to perform a geometry optimization at constant potential. This
+    # routine, along with the other const_U routines in this package, are 
+    # designed to handle checkpointing smoothly.
+    ############################################################################
+    #
+    ############################################################################
+    # Expects an atoms object, a calculator object, and a desired potential.
+    # All const_U routines in this package use ASE -- see the ASE website for
+    # more details on how to set up atoms and calculator objects.
+    #
+    # You should set the specific calculator parameters that you want in the 
+    # calculator object that is passed to this routine (e.g. ENCUT, kpts, ...).
+    ############################################################################
+
     import os,sys,pickle,math
-    # script to optimize geometry at constant potential
-    # expects an atoms object, a calculator object, and a desired potential
-    # optional inputs:
-    #   tolerance: tolerance on the potential in V vs SHE
-    #   fmax: the maximum force before geometry is considered optimized in eV/A
     
+    # ensure the force cutoff is set properly
     calc.float_params['ediffg'] = -1*ediffg
     atoms.set_calculator(calc)
 
@@ -788,8 +809,8 @@ def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
     i = 0
     while converged == 0:
         i += 1
-        if i > 5:
-            print('Stuck in a loop')
+        if i > 10:
+            print('Stuck in a loop -- bug report?')
             exit()
         # first optimize NELECT
         set_pot(atoms,calc,desired_U)
@@ -808,15 +829,182 @@ def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
         nel_data['nelect'].append(nel_out)
         pickle.dump(nel_data,open('nelect_data.pkl','wb'))
 
+        # restart from CONTCAR
         os.system('cp CONTCAR POSCAR')
         atoms.write('iter%02d.traj'%i)
 
+        # check convergence criteria: max forces, and current potential
         if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < _tolerance_U:
             converged = 1
         else:
             print('Not yet converged')
             print('U = %.2f V vs SHE'%(float(get_wf_implicit('./'))-_she_U))
-            print('max force = %.2f'%fmax(atoms))
+            print('max force = %.2f eV/A'%fmax(atoms))
+        sys.stdout.flush()
+
+    print('\nFinished!\n')
+
+
+def const_U_dimer(atoms,calc,desired_U,ediffg=0.05):
+    ############################################################################
+    # Script to locate transition state at constant potential using
+    # the Dimer method. See https://theory.cm.utexas.edu/vtsttools/dimer.html
+    # for more details on the Dimer method.
+    ############################################################################
+    #
+    ############################################################################
+    # Expects an atoms object, a calculator object, and a desired potential.
+    #
+    # All const_U routines in this package use ASE -- see the ASE website for
+    # more details on how to set up atoms and calculator objects.
+    #
+    # You should set the specific values of IOPT etc that you want in the 
+    # calculator object that is passed to this routine.
+    #
+    # Ideally, you should also already have a MODECAR file created, as 
+    # convergence is bad without a good initial guess in my experience.
+    ############################################################################
+
+    import os,sys,pickle,math
+
+    # set required flags for Dimer method, if they're not already set
+    calc.float_params['ediffg'] = -1*ediffg
+    calc.int_params['ibrion'] = 3
+    calc.float_params['potim'] = 0
+    atoms.set_calculator(calc)
+
+    converged = 0
+    i = 0
+    while converged == 0:
+        i += 1
+        if i > 10:
+            print('Stuck in a loop -- bug report?')
+            exit()
+
+        # first optimize NELECT
+        calc.int_params['ichain'] = 0
+        set_pot(atoms,calc,desired_U)
+
+        calc.int_params['ichain'] = 2
+        # ediff = 1e-8 needed for accurate estimation of forces
+        # this gets set to 1e-4 during the NELECT optimization routine
+        calc.exp_params['ediff'] = 1.0e-8
+        calc.int_params['nsw'] = 300
+        calc.bool_params['lwave'] = True
+        nel_data = pickle.load(open('./nelect_data.pkl','rb'))
+
+        # Run Dimer calculation 
+        print('Starting dimer optimization, iteration %i'%i)
+        atoms.get_potential_energy()
+
+        # update NELECT history
+        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+        nel_data['energy'].append(atoms.get_potential_energy())
+        nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
+        nel_data['nelect'].append(nel_out)
+        pickle.dump(nel_data,open('nelect_data.pkl','wb'))
+
+        # CENTCAR and CONTCAR should be similar...
+        # but CENTCAR is technically the write one to restart from
+        os.system('cp CENTCAR POSCAR')
+        atoms.write('iter%02d.traj'%i)
+
+        # check convergence criteria: max forces, and current potential
+        if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < _tolerance_U:
+            converged = 1
+        else:
+            print('Not yet converged')
+            print('U = %.2f V vs SHE'%(float(get_wf_implicit('./'))-_she_U))
+            print('max force = %.2f eV/A'%fmax(atoms))
+        sys.stdout.flush()
+
+    print('\nFinished!\n')
+
+def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
+    ############################################################################
+    # Script to perform a geometry optimization with a fixed bond length 
+    # constraint. This can be seen as an alternative to the dimer method, 
+    # provided your reaction pathway is roughly one dimensional.
+    ############################################################################
+    #
+    ############################################################################
+    # Expects an atoms object, a calculator object, a desired potential, and
+    # the indices of the two atoms to be fixed during geometry optimization.
+    #
+    # All const_U routines in this package use ASE -- see the ASE website for
+    # more details on how to set up atoms and calculator objects.
+    #
+    # You should set the specific calculator parameters that you want in the 
+    # calculator object that is passed to this routine (e.g. ENCUT, kpts, ...).
+    #
+    # Optional argument: z_cutoff specifices a z coordinate below which all
+    # atoms will be fixed during geometry optimization. Alternately, you can
+    # just fix the atoms you want and pass that atoms object into this routine.
+    ############################################################################
+    import os,sys,pickle,math,time
+    from ase.constraints import FixBondLength,FixAtoms
+    from ase.optimize import QuasiNewton,BFGS
+
+    calc.float_params['ediffg'] = -1*ediffg
+    atoms.set_calculator(calc)
+
+    converged = 0
+    i = 0
+    while converged == 0:
+        i += 1
+        if i > 10:
+            print('Stuck in a loop -- bug report?')
+            exit()
+        # first optimize NELECT
+        set_pot(atoms,calc,desired_U)
+        calc.int_params['nsw'] = 300
+        calc.bool_params['lwave'] = True
+        nel_data = pickle.load(open('./nelect_data.pkl','rb'))
+
+        # geometry optimize using VASP optimizer
+        print('Starting geometry optimization, iteration %i'%i)
+
+        # need to set up constraints
+        c = atoms.constraints
+        fbl = FixBondLength(ind1,ind2)
+        c += 
+
+        # need to set up constraints
+        c = atoms.constraints
+        fbl = FixBondLength(ind1,ind2)
+        c.append(fbl)
+
+        # optionally, you can specify a z to fix atoms
+        if z_cutoff is not None:
+            fix_inds = [atom.index for atom in atoms if atom.z < z_cutoff]
+            c.append(FixAtoms(indices=fix_inds))
+        atoms.set_constraint(c)
+        atoms.set_calculator(calc)
+
+        # Now run optimization useing ASE optimizer.
+        # In my experience, linesearch methods fail to converge,
+        # which is why this uses regular old BFGS.
+        dyn = BFGS(atoms,trajectory='./qn.traj',logfile='./qn.log')
+        dyn.run(fmax=ediffg)
+
+        # update NELECT history
+        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+        nel_data['energy'].append(atoms.get_potential_energy())
+        nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
+        nel_data['nelect'].append(nel_out)
+        pickle.dump(nel_data,open('nelect_data.pkl','wb'))
+
+        # restart from CONTCAR
+        os.system('cp CONTCAR POSCAR')
+        atoms.write('iter%02d.traj'%i)
+
+        # check convergence criteria: max forces, and current potential
+        if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < _tolerance_U:
+            converged = 1
+        else:
+            print('Not yet converged')
+            print('U = %.2f V vs SHE'%(float(get_wf_implicit('./'))-_she_U))
+            print('max force = %.2f eV/A'%fmax(atoms))
         sys.stdout.flush()
 
     print('\nFinished!\n')
