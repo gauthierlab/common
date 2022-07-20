@@ -820,6 +820,7 @@ def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
 
         # geometry optimize using VASP optimizer
         print('Starting geometry optimization, iteration %i'%i)
+        sys.stdout.flush()
         atoms.get_potential_energy() # calls VASP
 
         # update NELECT history
@@ -895,6 +896,7 @@ def const_U_dimer(atoms,calc,desired_U,ediffg=0.05):
 
         # Run Dimer calculation 
         print('Starting dimer optimization, iteration %i'%i)
+        sys.stdout.flush()
         atoms.get_potential_energy()
 
         # update NELECT history
@@ -961,9 +963,9 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
         calc.bool_params['lwave'] = True
         nel_data = pickle.load(open('./nelect_data.pkl','rb'))
 
-        # geometry optimize using VASP optimizer
+        # geometry optimize 
         print('Starting geometry optimization, iteration %i'%i)
-
+        sys.stdout.flush()
         # need to set up constraints
         c = atoms.constraints
         fbl = FixBondLength(ind1,ind2)
