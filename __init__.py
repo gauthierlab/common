@@ -967,11 +967,6 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
         # need to set up constraints
         c = atoms.constraints
         fbl = FixBondLength(ind1,ind2)
-        c += 
-
-        # need to set up constraints
-        c = atoms.constraints
-        fbl = FixBondLength(ind1,ind2)
         c.append(fbl)
 
         # optionally, you can specify a z to fix atoms
