@@ -714,8 +714,8 @@ def set_pot(atoms,calc,desired_U):
         # Newton's method to optimize NELECT
         grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
         grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
-        if abs(grad_denom) < 0.001:
-            diff = 0.01
+        if abs(grad_denom) < 0.0001:
+            diff = 0.001
         else:
             grad = grad_numer/grad_denom
             y = nel_data['potential'][-1]-desired_U
