@@ -1005,3 +1005,49 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
         sys.stdout.flush()
 
     print('\nFinished!\n')
+
+
+def match_pbcs(fs_atoms,is_atoms,moving_atoms=[],tolerance=1.0):
+    # This function tries to match atoms across a reaction
+    # coordinate so that interpolation can be used without
+    # minimum image convention (which sometimes breaks)
+    #
+    # takes as input the FS and IS atoms, and a list of 
+    # atoms which you expect to move across the reaction 
+    # coordinate
+    #
+    # returns an updated FS atoms
+
+    assert len(is_atoms)==len(fs_atoms)
+
+    for i in range(len(is_atoms)):
+        if i in moving_atoms:
+            continue
+        
+        is_x = is_atoms[i].x
+        fs_x = fs_atoms[i].x
+
+        is_y = is_atoms[i].y
+        fs_y = fs_atoms[i].y
+
+        while abs(fs_x-is_x) > tolerance:
+            print('X difference: %.2f'%(abs(fs_x-is_x)))
+            # need to move fs atoms in x
+            if fs_x > is_x:
+                fs_atoms[i].x -= (fs_atoms.cell[0][0]+fs_atoms.cell[1][0])
+            elif fs_x < is_x: 
+                fs_atoms[i].x += (fs_atoms.cell[0][0]+fs_atoms.cell[1][0])
+            is_x = is_atoms[i].x
+            fs_x = fs_atoms[i].x
+
+
+        while abs(fs_y-is_y) > tolerance:
+            print('Y difference: %.2f'%(abs(fs_y-is_y)))
+            # need to move fs atoms in x
+            if fs_y > is_y:
+                fs_atoms[i].y -= (fs_atoms.cell[1][1])
+            elif fs_y < is_y: 
+                fs_atoms[i].y += (fs_atoms.cell[1][1])
+            is_y = is_atoms[i].y
+            fs_y = fs_atoms[i].y
+    return fs_atoms
