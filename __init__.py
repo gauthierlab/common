@@ -647,7 +647,10 @@ def fmax(atoms):
     from ase.io import read
     # given an atoms object, return the maximum force on
     # an unconstrained atom
-    unconstrained = [atom.index for atom in atoms if atom.index not in list(atoms.constraints[0].index)]
+    if atoms.constraints != []:
+        unconstrained = [atom.index for atom in atoms if atom.index not in list(atoms.constraints[0].index)]
+    else:
+        unconstrained = [atom.index for atom in atoms]
     ftemp = []
     for ind in unconstrained:
         f = atoms.get_forces()[ind]
