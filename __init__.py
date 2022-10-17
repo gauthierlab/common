@@ -962,7 +962,7 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
             exit()
         # first optimize NELECT
         set_pot(atoms,calc,desired_U)
-        calc.int_params['nsw'] = 300
+        # calc.int_params['nsw'] = 300
         calc.bool_params['lwave'] = True
         nel_data = pickle.load(open('./nelect_data.pkl','rb'))
 
