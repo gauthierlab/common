@@ -294,14 +294,14 @@ def scale_metal(atoms,a_old,a_new,old_sym,new_sym=None):
     atoms.set_cell(atoms.cell*ratio)
     translate = [(1-ratio)*atoms.cell[i][i] for i in range(3)]
     for atom in atoms:
-        if atom.symbol == old_sym or atom.symbol == new_sym:
-            atom.x *= ratio
-            atom.y *= ratio
-            atom.z *= ratio
-        else:
-            atom.x -= translate[0]
-            atom.y -= translate[1]
-            atom.z -= translate[2]
+        # if atom.symbol == old_sym or atom.symbol == new_sym:
+        atom.x *= ratio
+        atom.y *= ratio
+        atom.z *= ratio
+        # else:
+            # atom.x -= translate[0]
+            # atom.y -= translate[1]
+            # atom.z -= translate[2]
     return atoms
 
 # now for a few functions that get_dos depends on
@@ -569,7 +569,7 @@ def fed(path,label,fig):
     plt.xticks([])
 
 def get_zval(symbol,path,use_pbe):
-    pbe_dict = {'Pd': 10.0, 'Sb': 5.0, 'Cr': 12.0, 'Se': 6.0, 'Sn': 14.0, 'Li': 3.0, 'He': 2.0, 'Fr': 9.0, 'Cs': 9.0, 'Nd': 11.0, 'Ac': 11.0, 'Ho': 9.0, 'Eu': 8.0, 'Ni': 10.0, 'Po': 16.0, 'Am': 17.0, 'Be': 2.0, 'Sr': 10.0, 'Al': 3.0, 'Mg': 2.0, 'Ir': 9.0, 'Ge': 14.0, 'Sm': 11.0, 'Cu': 11.0, 'Ra': 10.0, 'Hf': 10.0, 'Co': 9.0, 'Fe': 8.0, 'Ga': 13.0, 'Ba': 10.0, 'Te': 6.0, 'U': 14.0, 'Tb': 9.0, 'I': 7.0, 'Er': 9.0, 'N': 5.0, 'Rn': 8.0, 'Ca': 10.0, 'Nb': 13.0, 'S': 6.0, 'Tl': 13.0, 'F': 7.0, 'O': 6.0, 'Ta': 11.0, 'Pb': 14.0, 'H': 1.0, 'Zn': 12.0, 'Na': 7.0, 'Pu': 16.0, 'Gd': 9.0, 'Pt': 10.0, 'Sc': 11.0, 'V': 13.0, 'Lu': 9.0, 'Dy': 9.0, 'Pa': 13.0, 'Si': 4.0, 'Ag': 11.0, 'Kr': 8.0, 'Pm': 11.0, 'Tc': 13.0, 'Ar': 8.0, 'Rb': 9.0, 'Au': 11.0, 'W': 12.0, 'Ne': 8.0, 'At': 7.0, 'Np': 15.0, 'Tm': 9.0, 'As': 5.0, 'Hg': 12.0, 'K': 9.0, 'Br': 7.0, 'Os': 8.0, 'Yb': 8.0, 'Cd': 12.0, 'Cm': 18.0, 'Pr': 11.0, 'Ru': 14.0, 'Mo': 14.0, 'In': 13.0, 'Cl': 7.0, 'La': 11.0, 'Ce': 12.0, 'C': 4.0, 'Th': 12.0, 'B': 3.0, 'Y': 11.0, 'Mn': 13.0, 'Bi': 15.0, 'Re': 7.0, 'Xe': 8.0, 'Rh': 15.0, 'Zr': 12.0, 'Ti': 12.0, 'P': 5.0}
+    pbe_dict = {'Pd': 10.0, 'Sb': 5.0, 'Cr': 12.0, 'Se': 6.0, 'Sn': 14.0, 'Li': 3.0, 'He': 2.0, 'Fr': 9.0, 'Cs': 9.0, 'Nd': 11.0, 'Ac': 11.0, 'Ho': 9.0, 'Eu': 8.0, 'Ni': 10.0, 'Po': 16.0, 'Am': 17.0, 'Be': 2.0, 'Sr': 10.0, 'Al': 3.0, 'Mg': 2.0, 'Ir': 9.0, 'Ge': 14.0, 'Sm': 11.0, 'Cu': 11.0, 'Ra': 10.0, 'Hf': 10.0, 'Co': 9.0, 'Fe': 8.0, 'Ga': 13.0, 'Ba': 10.0, 'Te': 6.0, 'U': 14.0, 'Tb': 9.0, 'I': 7.0, 'Er': 9.0, 'N': 5.0, 'Rn': 8.0, 'Ca': 10.0, 'Nb': 13.0, 'S': 6.0, 'Tl': 13.0, 'F': 7.0, 'O': 6.0, 'Ta': 11.0, 'Pb': 14.0, 'H': 1.0, 'Zn': 12.0, 'Na': 7.0, 'Pu': 16.0, 'Gd': 9.0, 'Pt': 10.0, 'Sc': 11.0, 'V': 13.0, 'Lu': 9.0, 'Dy': 9.0, 'Pa': 13.0, 'Si': 4.0, 'Ag': 11.0, 'Kr': 8.0, 'Pm': 11.0, 'Tc': 13.0, 'Ar': 8.0, 'Rb': 9.0, 'Au': 11.0, 'W': 12.0, 'Ne': 8.0, 'At': 7.0, 'Np': 15.0, 'Tm': 9.0, 'As': 5.0, 'Hg': 12.0, 'K': 9.0, 'Br': 7.0, 'Os': 8.0, 'Yb': 8.0, 'Cd': 12.0, 'Cm': 18.0, 'Pr': 11.0, 'Ru': 14.0, 'Mo': 14.0, 'In': 13.0, 'Cl': 7.0, 'La': 11.0, 'Ce': 12.0, 'C': 4.0, 'Th': 12.0, 'B': 3.0, 'Y': 11.0, 'Mn': 13.0, 'Bi': 15.0, 'Re': 7.0, 'Xe': 8.0, 'Rh': 9.0, 'Zr': 12.0, 'Ti': 12.0, 'P': 5.0}
     if use_pbe:
         return pbe_dict[symbol]
     # else:
@@ -667,6 +667,7 @@ def set_pot(atoms,calc,desired_U):
     calc.bool_params['lwave'] = True
     calc.int_params['nsw'] = 0
     calc.exp_params['ediff'] = 1.0e-4
+    calc.int_params['ibrion'] = 1
 
     # previous optimization was done, use that as starting point
     if os.path.isfile('nelect_data.pkl') and os.stat('nelect_data.pkl').st_size != 0:
@@ -849,7 +850,7 @@ def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
     print('\nFinished!\n')
 
 
-def const_U_dimer(atoms,calc,desired_U,ediffg=0.05):
+def const_U_dimer(atoms,calc,desired_U,ediffg=0.05,iopt=2):
     ############################################################################
     # Script to locate transition state at constant potential using
     # the Dimer method. See https://theory.cm.utexas.edu/vtsttools/dimer.html
@@ -873,8 +874,6 @@ def const_U_dimer(atoms,calc,desired_U,ediffg=0.05):
 
     # set required flags for Dimer method, if they're not already set
     calc.float_params['ediffg'] = -1*ediffg
-    calc.int_params['ibrion'] = 3
-    calc.float_params['potim'] = 0
     atoms.set_calculator(calc)
 
     converged = 0
@@ -887,9 +886,36 @@ def const_U_dimer(atoms,calc,desired_U,ediffg=0.05):
 
         # first optimize NELECT
         calc.int_params['ichain'] = 0
+
+        if i > 1:
+            calc.float_params['nelect'] += 1e-4 
+            # avoid a weird bug going through the loops too fast
+            # should probably figure out at some point ...
+            # it's related to atoms.get_potential_energy() only calling
+            # vasp to run if the atoms object has not changed at all
+            # ... so if you change the calculator by some very small amount,
+            # vasp will run instead of instantly returning the energy/forces
+            # ¯\_(ツ)_/¯ 
+            atoms.set_calculator(calc)
         set_pot(atoms,calc,desired_U)
 
+        # ICHAIN 2 == Dimer method
         calc.int_params['ichain'] = 2
+
+        # IBRION 3 == molecular dynamics
+        # POTIM 0 == zero time step
+        # this will ensure VASP uses VTST optimizers
+        calc.int_params['ibrion'] = 3
+        calc.float_params['potim'] = 0
+
+        # IOPT is set to two by default in this function, which 
+        # corresponds to a CG method. VTST sets it to 1 by default
+        # which is L-BFGS -- in my experience this can hang forever
+        # as it searches for a lower energy step.
+        # Another recommended setting would be 7, which is FIRE. 
+        # details: https://theory.cm.utexas.edu/vtsttools/optimizers.html
+        calc.int_params['iopt'] = iopt
+
         # ediff = 1e-8 needed for accurate estimation of forces
         # this gets set to 1e-4 during the NELECT optimization routine
         calc.exp_params['ediff'] = 1.0e-8

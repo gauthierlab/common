@@ -1,0 +1,24 @@
+def scale_metal(atoms,a_old,a_new,old_sym,new_sym=None):
+    # useful for changing lattice constant of metal, or
+    # changing the metal being used in a trajectory
+
+    # generally will only work for othorhombic cells
+    ratio = a_new/a_old
+
+    if new_sym is not None:
+        for atom in atoms:
+            if atom.symbol == old_sym:
+                atom.symbol = new_sym
+
+    atoms.set_cell(atoms.cell*ratio)
+    translate = [(1-ratio)*atoms.cell[i][i] for i in range(3)]
+    for atom in atoms:
+        # if atom.symbol == old_sym or atom.symbol == new_sym:
+        atom.x *= ratio
+        atom.y *= ratio
+        atom.z *= ratio
+        # else:
+            # atom.x -= translate[0]
+            # atom.y -= translate[1]
+            # atom.z -= translate[2]
+    return atoms
