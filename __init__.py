@@ -577,24 +577,24 @@ def get_zval(symbol,path,use_pbe):
         # return float(out.split()[5])
 
 
-def get_n0(path,use_pbe = True):
+def get_n0(path,use_pbe = True,atoms_file=None):
     from ase.io import read
     import os
     # if use_pbe:
         # print('assuming standard PBE POTCAR')
     files = ['CONTCAR','XDATCAR','OUTCAR','vasprun.xml','POSCAR']
     geometry_present = False
-    i = 0
-    for file in files:
-        if os.path.exists('%s/%s'%(path,file)):
-            geometry_present=True
-            break
-        i += 1
-    if not geometry_present:
-        print('no geometry file present, abort')
-        exit()
+    if atoms_file is None:
+        for file in files:
+            if os.path.exists('%s/%s'%(path,file)):
+                geometry_present=True
+                break
+            atoms_file = file
+        if not geometry_present:
+            print('no geometry file present, abort')
+            exit()
     n0 = 0
-    atoms = read('%s/%s'%(path,files[i]))
+    atoms = read('%s/%s'%(path,atoms_file))
     for atom in atoms:
         n0 += get_zval(atom.symbol,path,use_pbe)
     return n0
