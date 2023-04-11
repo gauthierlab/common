@@ -589,7 +589,7 @@ def get_n0(path,use_pbe = True,atoms_file=None):
             if os.path.exists('%s/%s'%(path,file)):
                 geometry_present=True
                 break
-            atoms_file = file
+        atoms_file = file
         if not geometry_present:
             print('no geometry file present, abort')
             exit()
