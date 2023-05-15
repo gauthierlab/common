@@ -42,6 +42,12 @@ _she_U=4.43
 
 # tolerance criteria used when optimizing NELECT for a given potential, in Volts
 _tolerance_U=0.02
+
+# Planck's constant in units of eV s
+_h = 4.135667696e-15
+
+#Boltzmann's constant in units of eV
+_kb = 8.617333262e-5
 ##################################################################################
 
 
