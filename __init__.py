@@ -613,7 +613,7 @@ def get_omega(path):
     n0 = get_n0(path)
 
     if not os.path.exists('%s/OUTCAR'%path):
-        print('no OUTCAR in directory, trying vasprun.xml instead')
+        # print('no OUTCAR in directory, trying vasprun.xml instead')
         e = read('%s/vasprun.xml'%path).get_potential_energy()
         nel = float(greplines('grep NELECT %s/vasprun.xml'%path)[0].split()[-1][:-4])
         fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
@@ -1004,7 +1004,9 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
         # need to set up constraints
         c = atoms.constraints
         fbl = FixBondLength(ind1,ind2)
-        c.append(fbl)
+        # only add FBL constraint if it's not already in the constraints list:
+        if fbl not in c:
+            c.append(fbl)
 
         # optionally, you can specify a z to fix atoms
         if z_cutoff is not None:
