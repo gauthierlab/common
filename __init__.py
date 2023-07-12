@@ -944,6 +944,8 @@ def const_U_dimer(atoms,calc,desired_U,ediffg=0.05,iopt=2):
         # CENTCAR and CONTCAR should be similar...
         # but CENTCAR is technically the write one to restart from
         os.system('cp CENTCAR POSCAR')
+        os.system('cp MODECAR oldMODECAR')
+        os.system('cp NEWMODECAR MODECAR')
         atoms.write('iter%02d.traj'%i)
 
         # check convergence criteria: max forces, and current potential
