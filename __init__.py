@@ -29,6 +29,8 @@
 # const_U_relax(atoms,calc,desired_U,tolerance=0.02,ediffg=0.05):
 # const_U_dimer(atoms,calc,desired_U,ediffg=0.05):
 # const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
+# match_pbcs(fs_atoms,is_atoms,moving_atoms=[],tolerance=1.0):
+# get_interp(atoms,end_inds,interp_ind,bl_1,bl_2,n_images=15):
 ##################################################################################
 
 
@@ -1090,3 +1092,56 @@ def match_pbcs(fs_atoms,is_atoms,moving_atoms=[],tolerance=1.0):
             is_y = is_atoms[i].y
             fs_y = fs_atoms[i].y
     return fs_atoms
+
+def get_interp(atoms,end_inds,interp_ind,bl_1,bl_2,n_images=15):
+    # linearly interpolates interp_ind between the two end_inds
+    # such that desired bond lengths bl_1 and bl_2 at the end
+    # points are satisfied. Useful for FBL calculations.
+    # expected inputs:
+    # atoms         -- an ASE atoms object containing the geometry to be used
+    # end_inds      -- a list of the two end indices that interp_ind should 
+    #                   be moved between
+    # interp_ind    -- the atom to be moved between end_inds (e.g., H)
+    # bl_1          -- desired bond length between end_inds[0] and interp_ind
+    # bl_2          -- desired bond length between end_inds[1] and interp_ind
+    # n_images      -- number of images to be created
+
+	import os
+	from scipy.optimize import fmin
+	import numpy as np
+
+	def f(t,a1,b1,a2,b2,a3,b3,ind,interp_ind,atoms,bl_des):
+		# inner function used to find t parameter
+		# corresponding to the end two bond lengths
+		atoms[interp_ind].x = a1*t+b1
+		atoms[interp_ind].y = a2*t+b2
+		atoms[interp_ind].z = a3*t+b3
+		dist = (bl_des-atoms.get_distance(ind,interp_ind))**2
+		return dist
+
+	# define three dimensional vector connecting
+	# the two end points
+	a1 = atoms[end_inds[1]].x - atoms[end_inds[0]].x
+	a2 = atoms[end_inds[1]].y - atoms[end_inds[0]].y
+	a3 = atoms[end_inds[1]].z - atoms[end_inds[0]].z
+	b1 = atoms[end_inds[0]].x
+	b2 = atoms[end_inds[0]].y
+	b3 = atoms[end_inds[0]].z
+
+	# get vector between the two end points
+	t_end1 = fmin(f,0.5,args=(a1,b1,a2,b2,a3,b3,end_inds[0],interp_ind,atoms,bl_1),disp=False)[0]
+	t_end2 = fmin(f,0.5,args=(a1,b1,a2,b2,a3,b3,end_inds[1],interp_ind,atoms,bl_2),disp=False)[0]
+
+    # now interpolate between end states and write images
+    # into subdirectories labeled with the VASP neb formalism
+	ts = np.linspace(t_end1,t_end2,n_images)
+	i = 0
+	for t in ts:
+		atoms[h_ind].x = b1+t*a1
+		atoms[h_ind].y = b2+t*a2
+		atoms[h_ind].z = b3+t*a3
+		dir = '%02d'%i
+		if not os.path.exists(dir):
+			os.mkdir(dir)
+		atoms.write('%s/init.traj'%dir)
+		i += 1
