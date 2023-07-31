@@ -1137,9 +1137,9 @@ def get_interp(atoms,end_inds,interp_ind,bl_1,bl_2,n_images=15):
 	ts = np.linspace(t_end1,t_end2,n_images)
 	i = 0
 	for t in ts:
-		atoms[h_ind].x = b1+t*a1
-		atoms[h_ind].y = b2+t*a2
-		atoms[h_ind].z = b3+t*a3
+		atoms[interp_ind].x = b1+t*a1
+		atoms[interp_ind].y = b2+t*a2
+		atoms[interp_ind].z = b3+t*a3
 		dir = '%02d'%i
 		if not os.path.exists(dir):
 			os.mkdir(dir)
