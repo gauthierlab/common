@@ -669,6 +669,7 @@ def fmax(atoms):
 def set_pot(atoms,calc,desired_U):
     import os,sys,pickle,math
     from ase.io import read
+    import numpy as np
     # determine NELECT required to have potential=desired_U
     calc.bool_params['lcharg'] = False
     calc.int_params['ichain'] = 0
@@ -699,19 +700,20 @@ def set_pot(atoms,calc,desired_U):
 
     # no need to run further optimization if you're already at the desired potential
     if abs(nel_data['potential'][-1]-desired_U) < _tolerance_U:
-        # if len(nel_data['potential']) > 2:
-            # if abs(nel_data['potential'][-1]-nel_data['potential'][-2]) < 0.001:
-                # # strange bug -- gets stuck, so update nelect by a tiny amount
-                # # to force a new single point calculation
-                # calc.float_params['nelect'] += 1e-3
-                # return
+        if len(nel_data['potential']) > 2:
+            if nel_data['nelect'][-1] == nel_data['nelect'][-2]):
+                # strange bug -- gets stuck, so update nelect by a tiny amount
+                # to force a new single point calculation
+                calc.float_params['nelect'] += 1e-4
+                return
         return
 
     if len(nel_data['nelect']) < 2:
         # only one data point - do another single point with slightly more
         # electrons to get an initial gradient for newton's method
-        # initial guess for C: 1 e/V
-        calc.float_params['nelect'] = nel_data['nelect'][-1]+(nel_data['potential'][-1]-desired_U)
+        # initial guess for C: 1 e/V in a ~100 square angstrom cell
+        area = np.linalg.norm(np.cross(atoms.cell[0],atoms.cell[1]))
+        calc.float_params['nelect'] = nel_data['nelect'][-1]+area/100.0*(nel_data['potential'][-1]-desired_U)
         atoms.set_calculator(calc)
         atoms.get_potential_energy()
 
@@ -724,17 +726,28 @@ def set_pot(atoms,calc,desired_U):
     #start the optimization, initialize vars
     while abs(nel_data['potential'][-1]-desired_U) > _tolerance_U:
         # Newton's method to optimize NELECT
-        grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
-        grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
-        if abs(grad_denom) < 0.0001:
-            diff = 0.001
+        if len(nel_data['potential']) < 3:
+            # only two points to estimate gradient
+            grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
+            grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
+            if abs(grad_denom) < 0.0001:
+                # this should not be possible with the safeguard above
+                # but, just double check ... no infinite gradient
+                diff = 0.001
+            else:
+                # if grad_denom is not almost zero,
+                # calculate a gradient normally
+                grad = grad_numer/grad_denom
         else:
-            grad = grad_numer/grad_denom
-            y = nel_data['potential'][-1]-desired_U
-            diff = abs(y)**2/(y*grad)
+            # use the last 3 points rather than last two
+            # to estimate gradient
+            x,y,grad,intercept = get_line(nel_data['nelect'][-3:],nel_data['potential'][-3:])
+        y = nel_data['potential'][-1]-desired_U
+        diff = abs(y)**2/(y*grad) # how much to change NELECT by this step
 
         # don't take too big of a step ..
         # can happen if two subsequent steps are too close together
+        # again, shouldn't be possible, but just make sure
         if diff > 5.0:
             diff = 0.75
         elif diff < -5.0:
