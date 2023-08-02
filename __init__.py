@@ -711,9 +711,9 @@ def set_pot(atoms,calc,desired_U):
     if len(nel_data['nelect']) < 2:
         # only one data point - do another single point with slightly more
         # electrons to get an initial gradient for newton's method
-        # initial guess for C: 1 e/V in a ~100 square angstrom cell
+        # initial guess for C: 1 e/V in a ~60 square angstrom cell
         area = np.linalg.norm(np.cross(atoms.cell[0],atoms.cell[1]))
-        calc.float_params['nelect'] = nel_data['nelect'][-1]+area/100.0*(nel_data['potential'][-1]-desired_U)
+        calc.float_params['nelect'] = nel_data['nelect'][-1]+area/60.0*(nel_data['potential'][-1]-desired_U)
         atoms.set_calculator(calc)
         atoms.get_potential_energy()
 
