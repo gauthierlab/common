@@ -287,7 +287,7 @@ def pos_swap(atoms,ind1,ind2):
 
     return atoms
 
-def scale_metal(atoms,a_old,a_new,old_sym,new_sym=None):
+def scale_metal(atoms,a_old,a_new,old_sym=None,new_sym=None):
     # useful for changing lattice constant of metal, or 
     # changing the metal being used in a trajectory
 
@@ -295,6 +295,7 @@ def scale_metal(atoms,a_old,a_new,old_sym,new_sym=None):
     ratio = a_new/a_old
 
     if new_sym is not None:
+        assert old_sym is not None, "Need to specify which symbol to replace with new_sym using keyword 'old_sym'"
         for atom in atoms:
             if atom.symbol == old_sym:
                 atom.symbol = new_sym
@@ -529,7 +530,7 @@ def get_parab(x0,x1,y0,y1,side):
 # e.g., fig = plt.figure(figsize=(6*1.618,6))
 # label = 'CO + COH -> OCCOH'
 # path = [('min',0),('ts',1.5),('min',1.0)]
-def fed(path,label,fig):
+def fed(path,label=None,fig=None):
     import matplotlib.pyplot as plt
     import numpy as np
     from common import get_line
