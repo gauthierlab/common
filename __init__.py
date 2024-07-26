@@ -56,14 +56,16 @@ _kb = 8.617333262e-5
 def get_irr_kpts(atoms,kpts,is_shift=[0,0,0]):
     # returns the number of irreducible kpoints
     # given an atoms object and a desired k-pt grid
-
     import numpy as np
     from pymatgen.symmetry.analyzer import SpacegroupAnalyzer as sga
-    from pymatgen import Structure
+    from pymatgen.io.ase import AseAtomsAdaptor
     import os
-    atoms.write('./tmp.cif')
-    mesh = sga(structure=Structure.from_file('./tmp.cif')).get_ir_reciprocal_mesh(mesh=kpts)
-    os.system('rm ./tmp.cif')
+    aaa = AseAtomsAdaptor
+    struc = aaa.get_structure(atoms)
+    mesh = sga(struc).get_ir_reciprocal_mesh(mesh=kpts)
+    # atoms.write('./tmp.cif')
+    # mesh = sga(structure=Structure.from_file('./tmp.cif')).get_ir_reciprocal_mesh(mesh=kpts)
+    # os.system('rm ./tmp.cif')
     return len(mesh)
 
     # kpts = np.array(kpts)
@@ -198,14 +200,14 @@ def get_wf_implicit(path):
         print('No OUTCAR found -- use vasprun.xml instead')
         fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
     else:
-        out1 = greplines('grep fermi '+path+'/OUTCAR | tail -n 1')
+        out1 = greplines('grep -a fermi '+path+'/OUTCAR | tail -n 1')
         fermi = float(out1[0].split()[2])
 
     try:
-        out2 = greplines('grep FERMI_SHIFT '+path+'/opt.log | tail -n 1')
+        out2 = greplines('grep -a FERMI_SHIFT '+path+'/opt.log | tail -n 1')
         shift = float(out2[0].split(' = ')[-1])
     except:
-        out2 = greplines('grep FERMI_SHIFT '+path+'/vasp.out | tail -n 1')
+        out2 = greplines('grep -a FERMI_SHIFT '+path+'/vasp.out | tail -n 1')
         shift = float(out2[0].split(' = ')[-1])
 
     return -1*(fermi+shift)
@@ -621,7 +623,10 @@ def get_omega(path):
         nel = float(greplines('grep NELECT %s/vasprun.xml'%path)[0].split()[-1][:-4])
         fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
     else:
-        e = read('%s/OUTCAR'%path).get_potential_energy()
+        try:
+            e = read('%s/OUTCAR'%path).get_potential_energy()
+        except:
+            e = read('%s/vasprun.xml'%path).get_potential_energy()
         nel = float(greplines('grep NELECT %s/OUTCAR'%path)[0].split()[2])
         out1 = greplines('grep fermi %s/OUTCAR | tail -n 1'%path)
         fermi = float(out1[0].split()[2])
@@ -690,6 +695,7 @@ def set_pot(atoms,calc,desired_U):
         nel_data['potential'] = []
         nel_data['energy'] = []
         print('Running the first single point to get PZC')
+        atoms.set_calculator(calc)
         atoms.get_potential_energy()
         
         # store info from the first single point
