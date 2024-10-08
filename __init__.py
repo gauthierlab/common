@@ -31,6 +31,7 @@
 # const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
 # match_pbcs(fs_atoms,is_atoms,moving_atoms=[],tolerance=1.0):
 # get_interp(atoms,end_inds,interp_ind,bl_1,bl_2,n_images=15):
+# handle_restart()
 ##################################################################################
 
 
@@ -223,6 +224,8 @@ def get_chgcar(path,locpot=False,pavg=False):
     # optionally, return the planar average of this density
     # if the file is named "LOCPOT", the flag 'locpot' will be 
     # set to True
+    import os
+    import numpy as np
     if os.path.isfile(path[:-6]+'pavg.txt') and pavg:
         # already did the analysis, just read and return the file
         f = open(path[:-6]+'pavg.txt')
@@ -252,7 +255,7 @@ def get_chgcar(path,locpot=False,pavg=False):
     i += 1
 
     # find footer length
-    out = greplines('grep -n augmentation ' + path).split('\n')[0]
+    out = greplines('grep -n augmentation ' + path)[0].split('\n')[0]
     k = len(lines)-int(out.split(':')[0])
 
     density = np.genfromtxt(path,skip_header=i,skip_footer=k,invalid_raise=False)
@@ -1165,3 +1168,23 @@ def get_interp(atoms,end_inds,interp_ind,bl_1,bl_2,n_images=15):
 			os.mkdir(dir)
 		atoms.write('%s/init.traj'%dir)
 		i += 1
+
+def handle_restart()
+    # short script that prepares a directory for a restarted
+    # job -- makes a backup directory and copies contents from
+    # the previous submission, etc.
+    import os
+    if not os.path.exists('./OUTCAR'):
+        return False # job has not run here
+
+    backups = greplines('find . -type d -name "backup*"')
+    if backups == '':
+        backups = 0
+    else:
+        backups = len(backups)
+
+    backup_path = 'backup_%02d'%backups
+    os.mkdir(backup_path)
+    os.system('cp XDATCAR vasprun.xml OUTCAR opt.log CONTCAR POSCAR %s'%backup_path)
+    os.system('cp CONTCAR POSCAR')
+    os.system('rm WAVECAR')
