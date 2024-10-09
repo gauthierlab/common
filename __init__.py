@@ -1169,7 +1169,7 @@ def get_interp(atoms,end_inds,interp_ind,bl_1,bl_2,n_images=15):
 		atoms.write('%s/init.traj'%dir)
 		i += 1
 
-def handle_restart()
+def handle_restart():
     # short script that prepares a directory for a restarted
     # job -- makes a backup directory and copies contents from
     # the previous submission, etc.
