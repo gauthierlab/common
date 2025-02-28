@@ -889,7 +889,7 @@ def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
     print('\nFinished!\n')
 
 
-def const_U_dimer(atoms,calc,desired_U,ediffg=0.05,iopt=2):
+def const_U_dimer(atoms,calc,desired_U,ediff=1e-8,ediffg=0.05,iopt=2):
     ############################################################################
     # Script to locate transition state at constant potential using
     # the Dimer method. See https://theory.cm.utexas.edu/vtsttools/dimer.html
@@ -925,6 +925,7 @@ def const_U_dimer(atoms,calc,desired_U,ediffg=0.05,iopt=2):
 
         # first optimize NELECT
         calc.int_params['ichain'] = 0
+        calc.int_params['iopt'] = 0
 
         if i > 1:
             calc.float_params['nelect'] += 1e-4 
@@ -957,7 +958,7 @@ def const_U_dimer(atoms,calc,desired_U,ediffg=0.05,iopt=2):
 
         # ediff = 1e-8 needed for accurate estimation of forces
         # this gets set to 1e-4 during the NELECT optimization routine
-        calc.exp_params['ediff'] = 1.0e-8
+        calc.exp_params['ediff'] = ediff
         calc.int_params['nsw'] = 300
         calc.bool_params['lwave'] = True
         nel_data = pickle.load(open('./nelect_data.pkl','rb'))
