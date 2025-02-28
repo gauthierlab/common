@@ -696,6 +696,7 @@ def set_pot(atoms,calc,desired_U):
     # determine NELECT required to have potential=desired_U
     calc.bool_params['lcharg'] = False
     calc.int_params['ichain'] = 0
+    calc.int_params['iopt'] = 0
     calc.bool_params['lwave'] = True
     calc.int_params['nsw'] = 0
     calc.exp_params['ediff'] = 1.0e-4
@@ -724,12 +725,6 @@ def set_pot(atoms,calc,desired_U):
 
     # no need to run further optimization if you're already at the desired potential
     if abs(nel_data['potential'][-1]-desired_U) < _tolerance_U:
-        if len(nel_data['potential']) > 2:
-            if nel_data['nelect'][-1] == nel_data['nelect'][-2]:
-                # strange bug -- gets stuck, so update nelect by a tiny amount
-                # to force a new single point calculation
-                calc.float_params['nelect'] += 1e-4
-                return
         return
 
     if len(nel_data['nelect']) < 2:
@@ -750,6 +745,20 @@ def set_pot(atoms,calc,desired_U):
     #start the optimization, initialize vars
     while abs(nel_data['potential'][-1]-desired_U) > _tolerance_U:
         # Newton's method to optimize NELECT
+        if nel_data['nelect'][-1] == nel_data['nelect'][-2]:
+            # strange bug -- gets stuck, so update nelect by a tiny amount
+            # to force a new single point calculation
+            calc.float_params['nelect'] += 1e-3
+            atoms.set_calculator(calc)
+            atoms.get_potential_energy()
+
+            nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+            nel_data['energy'].append(atoms.get_potential_energy())
+            nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
+            nel_data['nelect'].append(nel_out)
+            pickle.dump(nel_data,open('nelect_data.pkl','wb'))
+            continue
+
         if len(nel_data['potential']) < 3:
             # only two points to estimate gradient
             grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
