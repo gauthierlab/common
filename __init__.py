@@ -631,8 +631,14 @@ def get_omega(path):
     if not os.path.exists('%s/OUTCAR'%path):
         # print('no OUTCAR in directory, trying vasprun.xml instead')
         e = read('%s/vasprun.xml'%path).get_potential_energy()
-        nel = float(greplines('grep NELECT %s/vasprun.xml'%path)[0].split()[-1][:-4])
-        fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
+        try:
+            nel = float(greplines('grep NELECT %s/vasprun.xml'%path)[0].split()[-1][:-4])
+            fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
+        except:
+            # newer ASE doesn't write necessary files to vasprun.xml
+            # maybe you saved necessary info to a text file to save space?
+            nel = float(greplines('cat %s/nel.txt'%path)[0])
+            fermi = float(greplines('cat %s/fermi.txt'%path)[0])
     else:
         try:
             e = read('%s/OUTCAR'%path).get_potential_energy()
