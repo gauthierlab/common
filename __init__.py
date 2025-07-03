@@ -199,13 +199,18 @@ def get_wf_implicit(path):
     from ase.io import read
 
     if not os.path.exists('%s/OUTCAR'%path):
-        print('No OUTCAR found -- use vasprun.xml instead')
-        fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
-        solcheck = greplines('grep ISOL vasprun.xml')
+        if not os.path.exists('%s/vasprun.xml'%path):
+            # no vasprun either 
+            fermi = float(greplines('cat %s/fermi.txt'%path)[0])
+            solcheck = greplines('grep ISOL %s/INCAR'%path)
+        else:
+            print('No OUTCAR found -- use vasprun.xml instead')
+            fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
+            solcheck = greplines('grep ISOL %s/vasprun.xml'%path)
     else:
         out1 = greplines('grep -a fermi '+path+'/OUTCAR | tail -n 1')
         fermi = float(out1[0].split()[2])
-        solcheck = greplines('grep ISOL OUTCAR')
+        solcheck = greplines('grep ISOL %s/OUTCAR'%path)
 
     if solcheck != []:
         # using VASPsol++, no need to check for FERMI_SHIFT
@@ -630,11 +635,15 @@ def get_omega(path):
 
     if not os.path.exists('%s/OUTCAR'%path):
         # print('no OUTCAR in directory, trying vasprun.xml instead')
-        e = read('%s/vasprun.xml'%path).get_potential_energy()
         try:
+            e = read('%s/vasprun.xml'%path).get_potential_energy()
+        except:
+            e = read('%s/lastimage.traj'%path).get_potential_energy()
+
+        if os.path.exists('%s/vasprun.xml'%path):
             nel = float(greplines('grep NELECT %s/vasprun.xml'%path)[0].split()[-1][:-4])
             fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
-        except:
+        else:
             # newer ASE doesn't write necessary files to vasprun.xml
             # maybe you saved necessary info to a text file to save space?
             nel = float(greplines('cat %s/nel.txt'%path)[0])
@@ -701,6 +710,8 @@ def set_pot(atoms,calc,desired_U):
     calc.int_params['nsw'] = 0
     calc.exp_params['ediff'] = 1.0e-4
     calc.int_params['ibrion'] = 1
+    if calc.bool_params['lsol'] = False:
+        print('Continuum solvation is disabled -- are you sure this is correct?')
 
     # previous optimization was done, use that as starting point
     if os.path.isfile('nelect_data.pkl') and os.stat('nelect_data.pkl').st_size != 0:
