@@ -710,7 +710,7 @@ def set_pot(atoms,calc,desired_U):
     calc.int_params['nsw'] = 0
     calc.exp_params['ediff'] = 1.0e-4
     calc.int_params['ibrion'] = 1
-    if calc.bool_params['lsol'] = False:
+    if calc.bool_params['lsol'] == False:
         print('Continuum solvation is disabled -- are you sure this is correct?')
 
     # previous optimization was done, use that as starting point
