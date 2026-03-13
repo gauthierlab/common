@@ -1223,3 +1223,34 @@ def handle_restart():
     os.system('cp XDATCAR vasprun.xml OUTCAR opt.log CONTCAR POSCAR %s'%backup_path)
     os.system('cp CONTCAR POSCAR')
     os.system('rm WAVECAR')
+
+def get_nearest_neighbors(atoms, scale=1.1):
+    # Returns a dict mapping each atom index to a list of its nearest neighbor indices.
+    # Neighbor criterion: distance < scale * (r_i + r_j)
+	# where r_i and r_j are the covalent radii of each respective atom
+    from ase.data import covalent_radii
+    import numpy as np
+
+    # Get per-atom radii as a 1D array, shape (N,)
+    atomic_radii = np.array([covalent_radii[z] for z in atoms.get_atomic_numbers()])
+    
+    positions = atoms.positions  # shape (N, 3)
+    N = len(atoms)
+
+    # Pairwise displacement vectors, shape (N, N, 3)
+    delta = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]
+
+    # Pairwise distances, shape (N, N)
+    dists = np.sqrt(np.einsum('ijk,ijk->ij', delta, delta))
+
+    # Pairwise cutoffs: scale * (r_i + r_j), shape (N, N)
+    cutoffs = scale * (atomic_radii[:, np.newaxis] + atomic_radii[np.newaxis, :])
+
+    # Boolean neighbor mask — exclude self (diagonal) explicitly
+    neighbor_mask = (dists < cutoffs) & (dists > 0)
+
+    # Build neighbor list dict
+    neighbor_dict = {i: list(np.where(neighbor_mask[i])[0]) for i in range(N)}
+
+    return neighbor_dict
+
