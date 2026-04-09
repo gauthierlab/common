@@ -754,12 +754,20 @@ def set_pot(atoms,calc,desired_U):
         pickle.dump(nel_data,open('nelect_data.pkl','wb'))
 
     #start the optimization, initialize vars
+    max_iter = 20
+    n_iter = 0
     while abs(nel_data['potential'][-1]-desired_U) > _tolerance_U:
+        n_iter += 1
+        if n_iter > max_iter:
+            print('Error: set_pot did not converge after %d iterations' % max_iter)
+            print('Last potential: %.4f V, desired: %.4f V' % (nel_data['potential'][-1], desired_U))
+            sys.exit()
+
         # Newton's method to optimize NELECT
         if nel_data['nelect'][-1] == nel_data['nelect'][-2]:
-            # strange bug -- gets stuck, so update nelect by a tiny amount
-            # to force a new single point calculation
-            calc.float_params['nelect'] += 1e-3
+            # NELECT didn't change -- perturb by a meaningful amount
+            # based on the last known gradient to escape
+            calc.float_params['nelect'] = nel_data['nelect'][-1] + 0.1
             atoms.set_calculator(calc)
             atoms.get_potential_energy()
 
@@ -775,9 +783,18 @@ def set_pot(atoms,calc,desired_U):
             grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
             grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
             if abs(grad_denom) < 0.0001:
-                # this should not be possible with the safeguard above
-                # but, just double check ... no infinite gradient
-                diff = 0.001
+                # gradient is unreliable, take a small fixed step instead
+                new_nel = nel_data['nelect'][-1] + 0.1
+                calc.float_params['nelect'] = new_nel
+                atoms.set_calculator(calc)
+                atoms.get_potential_energy()
+
+                nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+                nel_data['energy'].append(atoms.get_potential_energy())
+                nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
+                nel_data['nelect'].append(nel_out)
+                pickle.dump(nel_data,open('nelect_data.pkl','wb'))
+                continue
             else:
                 # if grad_denom is not almost zero,
                 # calculate a gradient normally
