@@ -220,9 +220,14 @@ def get_wf_implicit(path):
     try:
         out2 = greplines('grep -a FERMI_SHIFT '+path+'/opt.log | tail -n 1')
         shift = float(out2[0].split(' = ')[-1])
-    except:
-        out2 = greplines('grep -a FERMI_SHIFT '+path+'/vasp.out | tail -n 1')
-        shift = float(out2[0].split(' = ')[-1])
+    except (IndexError, ValueError):
+        try:
+            out2 = greplines('grep -a FERMI_SHIFT '+path+'/vasp.out | tail -n 1')
+            shift = float(out2[0].split(' = ')[-1])
+        except (IndexError, ValueError):
+            print('Error: could not find FERMI_SHIFT in %s/opt.log or %s/vasp.out' % (path, path))
+            import sys
+            sys.exit()
 
     return -1*(fermi+shift)
 
@@ -683,20 +688,17 @@ def match_cell(ref_atoms,change_atoms,lower_vac,anchor_atom=None):
     return change_atoms
 
 def fmax(atoms):
-    import os,sys,pickle,math
-    from ase.io import read
+    import numpy as np
+    from ase.constraints import FixAtoms
     # given an atoms object, return the maximum force on
     # an unconstrained atom
-    if atoms.constraints != []:
-        unconstrained = [atom.index for atom in atoms if atom.index not in list(atoms.constraints[0].index)]
-    else:
-        unconstrained = [atom.index for atom in atoms]
-    ftemp = []
-    for ind in unconstrained:
-        f = atoms.get_forces()[ind]
-        ftemp.append((f[0]**2+f[1]**2+f[2]**2)**0.5)
-    ftemp.sort()
-    return ftemp[-1]
+    fixed = set()
+    for c in atoms.constraints:
+        if isinstance(c, FixAtoms):
+            fixed.update(c.index)
+    unconstrained = [atom.index for atom in atoms if atom.index not in fixed]
+    forces = atoms.get_forces()
+    return max(np.linalg.norm(forces[i]) for i in unconstrained)
 
 def set_pot(atoms,calc,desired_U):
     import os,sys,pickle,math
@@ -971,15 +973,9 @@ def const_U_dimer(atoms,calc,desired_U,ediff=1e-8,ediffg=0.05,iopt=2):
         calc.int_params['iopt'] = 0
 
         if i > 1:
-            calc.float_params['nelect'] += 1e-4 
-            # avoid a weird bug going through the loops too fast
-            # should probably figure out at some point ...
-            # it's related to atoms.get_potential_energy() only calling
-            # vasp to run if the atoms object has not changed at all
-            # ... so if you change the calculator by some very small amount,
-            # vasp will run instead of instantly returning the energy/forces
-            # ¯\_(ツ)_/¯ 
-            atoms.set_calculator(calc)
+            # force ASE to re-run VASP by clearing cached results
+            if hasattr(atoms, 'calc') and hasattr(atoms.calc, 'results'):
+                atoms.calc.results = {}
         set_pot(atoms,calc,desired_U)
 
         # ICHAIN 2 == Dimer method
@@ -1064,6 +1060,16 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
     calc.float_params['ediffg'] = -1*ediffg
     atoms.set_calculator(calc)
 
+    # set up constraints once, before the loop
+    c = atoms.constraints
+    fbl = FixBondLength(ind1,ind2)
+    if fbl not in c:
+        c.append(fbl)
+    if z_cutoff is not None:
+        fix_inds = [atom.index for atom in atoms if atom.z < z_cutoff]
+        c.append(FixAtoms(indices=fix_inds))
+    atoms.set_constraint(c)
+
     converged = 0
     i = 0
     while converged == 0:
@@ -1077,24 +1083,12 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
         calc.bool_params['lwave'] = True
         nel_data = pickle.load(open('./nelect_data.pkl','rb'))
 
-        # geometry optimize 
+        # geometry optimize
         print('Starting geometry optimization, iteration %i'%i)
         sys.stdout.flush()
-        # need to set up constraints
-        c = atoms.constraints
-        fbl = FixBondLength(ind1,ind2)
-        # only add FBL constraint if it's not already in the constraints list:
-        if fbl not in c:
-            c.append(fbl)
-
-        # optionally, you can specify a z to fix atoms
-        if z_cutoff is not None:
-            fix_inds = [atom.index for atom in atoms if atom.z < z_cutoff]
-            c.append(FixAtoms(indices=fix_inds))
-        atoms.set_constraint(c)
         atoms.set_calculator(calc)
 
-        # Now run optimization useing ASE optimizer.
+        # Now run optimization using ASE optimizer.
         # In my experience, linesearch methods fail to converge,
         # which is why this uses regular old BFGS.
         dyn = BFGS(atoms,trajectory='./qn.traj',logfile='./qn.log')
