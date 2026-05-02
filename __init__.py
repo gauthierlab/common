@@ -202,15 +202,15 @@ def get_wf_implicit(path):
         if not os.path.exists('%s/vasprun.xml'%path):
             # no vasprun either 
             fermi = float(greplines('cat %s/fermi.txt'%path)[0])
-            solcheck = greplines('grep ISOL %s/INCAR'%path)
+            solcheck = greplines('grep -a ISOL %s/INCAR'%path)
         else:
             print('No OUTCAR found -- use vasprun.xml instead')
-            fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
-            solcheck = greplines('grep ISOL %s/vasprun.xml'%path)
+            fermi = float(greplines('grep -a fermi %s/vasprun.xml'%path)[0].split()[-2])
+            solcheck = greplines('grep -a ISOL %s/vasprun.xml'%path)
     else:
         out1 = greplines('grep -a fermi '+path+'/OUTCAR | tail -n 1')
         fermi = float(out1[0].split()[2])
-        solcheck = greplines('grep ISOL %s/OUTCAR'%path)
+        solcheck = greplines('grep -a ISOL %s/OUTCAR'%path)
 
     if solcheck != []:
         # using VASPsol++, no need to check for FERMI_SHIFT
