@@ -96,6 +96,18 @@ def get_line(x,y,extra=0.1,extramin=0.0,extraplus=0.0,return_mae=False):
     return xax,yax,a,b,mae
 
 
+def _fgrep(filepath, keyword):
+    """Return list of lines containing keyword; safe for paths with spaces."""
+    matches = []
+    try:
+        with open(filepath, errors='replace') as f:
+            for line in f:
+                if keyword in line:
+                    matches.append(line.rstrip('\n'))
+    except (OSError, IOError):
+        pass
+    return matches
+
 def greplines(cmd):
     import sys,subprocess
     # easier subprocess use - auto split by newline character
@@ -200,17 +212,19 @@ def get_wf_implicit(path):
 
     if not os.path.exists('%s/OUTCAR'%path):
         if not os.path.exists('%s/vasprun.xml'%path):
-            # no vasprun either 
-            fermi = float(greplines('cat %s/fermi.txt'%path)[0])
-            solcheck = greplines('grep -a ISOL %s/INCAR'%path)
+            # no vasprun either
+            if os.path.exists('%s/fermi.txt'%path):
+                fermi = float(open('%s/fermi.txt'%path).read().strip())
+            else:
+                fermi = float(greplines('cat %s/fermi.txt'%path)[0])
+            solcheck = _fgrep('%s/INCAR'%path, 'ISOL') if os.path.exists('%s/INCAR'%path) else []
         else:
             print('No OUTCAR found -- use vasprun.xml instead')
-            fermi = float(greplines('grep -a fermi %s/vasprun.xml'%path)[0].split()[-2])
-            solcheck = greplines('grep -a ISOL %s/vasprun.xml'%path)
+            fermi = float(_fgrep('%s/vasprun.xml'%path, 'fermi')[0].split()[-2])
+            solcheck = _fgrep('%s/vasprun.xml'%path, 'ISOL')
     else:
-        out1 = greplines('grep -a fermi '+path+'/OUTCAR | tail -n 1')
-        fermi = float(out1[0].split()[2])
-        solcheck = greplines('grep -a ISOL %s/OUTCAR'%path)
+        fermi = float(_fgrep('%s/OUTCAR'%path, 'fermi')[-1].split()[2])
+        solcheck = _fgrep('%s/OUTCAR'%path, 'ISOL')
 
     if solcheck != []:
         # using VASPsol++, no need to check for FERMI_SHIFT
@@ -218,12 +232,12 @@ def get_wf_implicit(path):
         return -1*fermi
 
     try:
-        out2 = greplines('grep -a FERMI_SHIFT '+path+'/opt.log | tail -n 1')
-        shift = float(out2[0].split(' = ')[-1])
+        out2 = _fgrep('%s/opt.log'%path, 'FERMI_SHIFT')
+        shift = float(out2[-1].split(' = ')[-1])
     except (IndexError, ValueError):
         try:
-            out2 = greplines('grep -a FERMI_SHIFT '+path+'/vasp.out | tail -n 1')
-            shift = float(out2[0].split(' = ')[-1])
+            out2 = _fgrep('%s/vasp.out'%path, 'FERMI_SHIFT')
+            shift = float(out2[-1].split(' = ')[-1])
         except (IndexError, ValueError):
             print('Error: could not find FERMI_SHIFT in %s/opt.log or %s/vasp.out' % (path, path))
             import sys
@@ -646,21 +660,20 @@ def get_omega(path):
             e = read('%s/lastimage.traj'%path).get_potential_energy()
 
         if os.path.exists('%s/vasprun.xml'%path):
-            nel = float(greplines('grep NELECT %s/vasprun.xml'%path)[0].split()[-1][:-4])
-            fermi = float(greplines('grep fermi %s/vasprun.xml'%path)[0].split()[-2])
+            nel = float(_fgrep('%s/vasprun.xml'%path, 'NELECT')[0].split()[-1][:-4])
+            fermi = float(_fgrep('%s/vasprun.xml'%path, 'fermi')[0].split()[-2])
         else:
             # newer ASE doesn't write necessary files to vasprun.xml
             # maybe you saved necessary info to a text file to save space?
-            nel = float(greplines('cat %s/nel.txt'%path)[0])
-            fermi = float(greplines('cat %s/fermi.txt'%path)[0])
+            nel = float(open('%s/nel.txt'%path).read().strip())
+            fermi = float(open('%s/fermi.txt'%path).read().strip())
     else:
         try:
             e = read('%s/OUTCAR'%path).get_potential_energy()
         except:
             e = read('%s/vasprun.xml'%path).get_potential_energy()
-        nel = float(greplines('grep NELECT %s/OUTCAR'%path)[0].split()[2])
-        out1 = greplines('grep fermi %s/OUTCAR | tail -n 1'%path)
-        fermi = float(out1[0].split()[2])
+        nel = float(_fgrep('%s/OUTCAR'%path, 'NELECT')[0].split()[2])
+        fermi = float(_fgrep('%s/OUTCAR'%path, 'fermi')[-1].split()[2])
     q = nel-n0
     # print(path,q,fermi)
 
