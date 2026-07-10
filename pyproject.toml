@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gauthier-common"
+version = "0.1.0"
+description = "Common utilities for constant-potential DFT with VASP/VASPsol++ and ASE"
+requires-python = ">=3.9"
+dependencies = [
+    "ase>=3.22,<3.24",
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "pymatgen",
+]
+
+[tool.setuptools]
+packages = ["common"]
+package-dir = {common = "."}
