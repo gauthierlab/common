@@ -1,44 +1,20 @@
+"""Common utilities for constant-potential DFT with VASP/VASPsol++ and ASE.
 
-# package containing many of the scripts I've written - for ease of use
+Shared across research groups. Import as `import common` (with
+/Users/jgauth32/PythonModules or equivalent on PYTHONPATH), or install with
+`pip install -e .`.
 
-# list of dependencies:
-# ase; numpy; scipy; matplotlib; spglib; prettytable; pymatgen; 
+Use `help(common)` or `help(common.some_func)` for the function list --
+there is deliberately no hand-maintained index here, since it drifts.
 
-##################################################################################
-# list of functions: 
-# get_irr_kpts(atoms,kpts,is_shift=[0,0,0])
-# get_line(x,y,extra=0.1)
-# greplines(cmd)
-# chk_output(cmd)
-# get_wf_environ(path)
-# get_wf_implicit(path)
-# get_wf_explicit(path)
-# get_chgcar(path,locpot=False,pavg=False)
-# pos_swap(atoms,ind1,ind2)
-# scale_metal(atoms,a_old,a_new,old_sym,new_sym=None)
-# get_dos(path)
-# get_parab used by the fed function
-# fed(path, label, fig)
-# get_n0(path,use_pbe = True):
-# get_omega(path):
-# match_cell(ref_atoms,change_atoms,lower_vac,anchor_atom=None)
-# fmax(atoms):
-# set_pot(atoms,calc,desired_U,tolerance=0.02):
-# get_closest(ref,atoms,ind):
-# reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
-# const_U_relax(atoms,calc,desired_U,tolerance=0.02,ediffg=0.05):
-# const_U_dimer(atoms,calc,desired_U,ediffg=0.05):
-# const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
-# match_pbcs(fs_atoms,is_atoms,moving_atoms=[],tolerance=1.0):
-# get_interp(atoms,end_inds,interp_ind,bl_1,bl_2,n_images=15):
-# handle_restart()
-##################################################################################
+Module-level defaults (override globally with e.g. `common._she_U = 4.6`,
+or per-call via the `she_U=`/`tolerance_U=` keyword arguments on set_pot
+and the const_U_* drivers):
+  _she_U       -- SHE reference potential (default 4.43 V)
+  _tolerance_U -- potential convergence tolerance (default 0.02 V)
 
-
-
-##################################################################################
-# Here are a few module wide constants that get used in various functions. You can
-# update them with e.g. "common._she_U = 4.6" or "common._tolerance_U = 0.01".
+Dependencies: ase, numpy, scipy, matplotlib, pymatgen.
+"""
 
 # SHE reference potential
 _she_U=4.43
@@ -51,12 +27,10 @@ _h = 4.135667696e-15
 
 #Boltzmann's constant in units of eV
 _kb = 8.617333262e-5
-##################################################################################
 
 
 def get_irr_kpts(atoms,kpts,is_shift=[0,0,0]):
-    # returns the number of irreducible kpoints
-    # given an atoms object and a desired k-pt grid
+    """Returns the number of irreducible kpoints given an atoms object and a desired k-pt grid."""
     import numpy as np
     from pymatgen.symmetry.analyzer import SpacegroupAnalyzer as sga
     from pymatgen.io.ase import AseAtomsAdaptor
@@ -80,10 +54,9 @@ def get_irr_kpts(atoms,kpts,is_shift=[0,0,0]):
 
 
 def get_line(x,y,extra=0.1,extramin=0.0,extraplus=0.0,return_mae=False):
+    """Returns a np array for the x and y axis of a line given some data."""
     import sys,subprocess
     import numpy as np
-    # returns a np array for the x and y axis of a line
-    # given some data
     xax = np.linspace(min(x)-extra-extramin,max(x)+extra+extraplus,10)
     a,b = np.polyfit(x,y,1)
     yax = a*xax+b
@@ -109,8 +82,8 @@ def _fgrep(filepath, keyword):
     return matches
 
 def greplines(cmd):
+    """Easier subprocess use - auto split by newline character."""
     import sys,subprocess
-    # easier subprocess use - auto split by newline character
     ver = sys.version_info[0]
     if ver == 2:
         try:
@@ -124,8 +97,8 @@ def greplines(cmd):
             return ''
 
 def chk_output(cmd):
+    """Easier subprocess use."""
     import sys,subprocess
-    # easier subprocess use
     ver = sys.version_info[0]
     if ver == 2:
         try:
@@ -139,7 +112,7 @@ def chk_output(cmd):
             return ''
 
 def param_set(param,val):
-    # read in INCAR file, set parameter to desired level
+    """Read in INCAR file, set parameter to desired level."""
     incar = open('INCAR','r')
     lines = incar.readlines()
     incar.close()
@@ -161,7 +134,8 @@ def param_set(param,val):
     incar.close()
 
 def get_wf_environ(path):
-    import os,sys,subprocess
+    """Compute the work function for an Environ-based calculation, if used."""
+    import os,sys,subprocess,pickle
     import numpy as np
     from ase.io import read
     # check if environ was used
@@ -217,7 +191,9 @@ def get_wf_implicit(path):
                 fermi = float(open('%s/fermi.txt'%path).read().strip())
             else:
                 fermi = float(greplines('cat %s/fermi.txt'%path)[0])
-            solcheck = _fgrep('%s/INCAR'%path, 'ISOL') if os.path.exists('%s/INCAR'%path) else []
+            if not os.path.exists('%s/INCAR'%path):
+                return -1*fermi  # INCAR stripped; all constant-U jobs here are VASPsol++
+            solcheck = _fgrep('%s/INCAR'%path, 'ISOL')
         else:
             print('No OUTCAR found -- use vasprun.xml instead')
             fermi = float(_fgrep('%s/vasprun.xml'%path, 'fermi')[0].split()[-2])
@@ -246,16 +222,18 @@ def get_wf_implicit(path):
     return -1*(fermi+shift)
 
 def get_wf_explicit(path):
+    import os
     if os.path.isfile(path+'/wf.out'):
         f = open(path+'/wf.out')
         lines = f.readlines()
         return float(lines[0].rstrip())
 
 def get_chgcar(path,locpot=False,pavg=False):
-    # get CHGCAR data as a numpy array
-    # optionally, return the planar average of this density
-    # if the file is named "LOCPOT", the flag 'locpot' will be 
-    # set to True
+    """Get CHGCAR data as a numpy array.
+
+    Optionally, return the planar average of this density. If the file is
+    named "LOCPOT", the flag 'locpot' will be set to True.
+    """
     import os
     import numpy as np
     if os.path.isfile(path[:-6]+'pavg.txt') and pavg:
@@ -310,7 +288,7 @@ def get_chgcar(path,locpot=False,pavg=False):
     return density
 
 def pos_swap(atoms,ind1,ind2):
-    # swap position of two atoms
+    """Swap position of two atoms."""
     x1,y1,z1 = [atoms[ind1].x,atoms[ind1].y,atoms[ind1].z]
     x2,y2,z2 = [atoms[ind2].x,atoms[ind2].y,atoms[ind2].z]
 
@@ -325,10 +303,11 @@ def pos_swap(atoms,ind1,ind2):
     return atoms
 
 def scale_metal(atoms,a_old,a_new,old_sym=None,new_sym=None):
-    # useful for changing lattice constant of metal, or 
-    # changing the metal being used in a trajectory
+    """Useful for changing lattice constant of metal, or changing the metal
+    being used in a trajectory.
 
-    # generally will only work for othorhombic cells
+    Generally will only work for orthorhombic cells.
+    """
     ratio = a_new/a_old
 
     if new_sym is not None:
@@ -556,18 +535,20 @@ def get_parab(x0,x1,y0,y1,side):
     return xax,yax
 
 
-# given a figure object, a reaction path, and a label,
-# returns a free energy diagram (FED) of the reaction path.
-###
-# reaction path should be a list of tuples, with the first
-# element of the tuple being either 'min' or 'ts' for the 
-# respective types (energy minimum or transition state).
-# The second element of the tuple is the energy relative to
-# the first entry. 
-# e.g., fig = plt.figure(figsize=(6*1.618,6))
-# label = 'CO + COH -> OCCOH'
-# path = [('min',0),('ts',1.5),('min',1.0)]
 def fed(path,label=None,fig=None):
+    """Given a figure object, a reaction path, and a label, returns a free
+    energy diagram (FED) of the reaction path.
+
+    The reaction path should be a list of tuples, with the first element of
+    each tuple being the energy relative to the first entry, and the second
+    element being either 'min' or 'ts' for the respective types (energy
+    minimum or transition state).
+
+    e.g.,
+        fig = plt.figure(figsize=(6*1.618,6))
+        label = 'CO + COH -> OCCOH'
+        path = [(0,'min'),(1.5,'ts'),(1.0,'min')]
+    """
     import matplotlib.pyplot as plt
     import numpy as np
     from common import get_line
@@ -646,10 +627,12 @@ def get_n0(path,use_pbe = True,atoms_file=None):
     return n0
 
 def get_omega(path):
+    """Calculate the grand canonical energy given a path.
+
+    Run save_space.py first.
+    """
     from ase.io import read
     import os
-    # calculate the grand canonical energy given a path
-    # run save_space.py first
     n0 = get_n0(path)
 
     if not os.path.exists('%s/OUTCAR'%path):
@@ -701,10 +684,9 @@ def match_cell(ref_atoms,change_atoms,lower_vac,anchor_atom=None):
     return change_atoms
 
 def fmax(atoms):
+    """Given an atoms object, return the maximum force on an unconstrained atom."""
     import numpy as np
     from ase.constraints import FixAtoms
-    # given an atoms object, return the maximum force on
-    # an unconstrained atom
     fixed = set()
     for c in atoms.constraints:
         if isinstance(c, FixAtoms):
@@ -713,11 +695,71 @@ def fmax(atoms):
     forces = atoms.get_forces()
     return max(np.linalg.norm(forces[i]) for i in unconstrained)
 
-def set_pot(atoms,calc,desired_U):
+def _next_nelect(nel_data, desired_U):
+    """Pure helper: given the NELECT/potential history so far, return the
+    proposed next NELECT value for set_pot's Newton-iteration loop.
+
+    Mirrors the logic previously inlined in set_pot's while loop:
+      - if the last two 'nelect' entries are equal, perturb by +0.1 to
+        escape (the two-point gradient estimate would be undefined).
+      - elif fewer than 3 potential entries: estimate the gradient from
+        the last two points; if the NELECT denominator is too small to
+        trust, perturb by +0.1 instead.
+      - else: estimate the gradient via a 3-point linear fit
+        (common.get_line) over the last three (nelect, potential) points.
+      - apply a Newton step using the estimated gradient, clamped to
+        +/-0.75 if the raw step would exceed +/-5.0.
+    """
+    last_nelect = nel_data['nelect'][-1]
+
+    if nel_data['nelect'][-1] == nel_data['nelect'][-2]:
+        # NELECT didn't change -- perturb by a meaningful amount
+        # based on the last known gradient to escape
+        return last_nelect + 0.1
+
+    if len(nel_data['potential']) < 3:
+        # only two points to estimate gradient
+        grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
+        grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
+        if abs(grad_denom) < 0.0001:
+            # gradient is unreliable, take a small fixed step instead
+            return last_nelect + 0.1
+        # if grad_denom is not almost zero, calculate a gradient normally
+        grad = grad_numer/grad_denom
+    else:
+        # use the last 3 points rather than last two to estimate gradient
+        x,y,grad,intercept = get_line(nel_data['nelect'][-3:],nel_data['potential'][-3:])
+
+    y = nel_data['potential'][-1]-desired_U
+    diff = abs(y)**2/(y*grad)  # how much to change NELECT by this step
+
+    # don't take too big of a step ..
+    # can happen if two subsequent steps are too close together
+    # again, shouldn't be possible, but just make sure
+    if diff > 5.0:
+        diff = 0.75
+    elif diff < -5.0:
+        diff = -0.75
+
+    return last_nelect - diff
+
+def set_pot(atoms,calc,desired_U,she_U=None,tolerance_U=None):
+    """Determine NELECT required to have potential=desired_U.
+
+    Optional arguments:
+    she_U       -- SHE reference potential, in V. Default (None) resolves
+                   to the module-level common._she_U at call time.
+    tolerance_U -- potential convergence tolerance, in V. Default (None)
+                   resolves to the module-level common._tolerance_U at
+                   call time.
+    """
     import os,sys,pickle,math
     from ase.io import read
     import numpy as np
-    # determine NELECT required to have potential=desired_U
+    if she_U is None:
+        she_U = _she_U
+    if tolerance_U is None:
+        tolerance_U = _tolerance_U
     calc.bool_params['lcharg'] = False
     calc.int_params['ichain'] = 0
     calc.int_params['iopt'] = 0
@@ -731,6 +773,8 @@ def set_pot(atoms,calc,desired_U):
     # previous optimization was done, use that as starting point
     if os.path.isfile('nelect_data.pkl') and os.stat('nelect_data.pkl').st_size != 0:
         nel_data = pickle.load(open('./nelect_data.pkl','rb'))
+        nel_data['she_U'] = she_U
+        nel_data['tolerance_U'] = tolerance_U
         calc.float_params['nelect'] = nel_data['nelect'][-1]
         atoms.set_calculator(calc)
     else:
@@ -738,19 +782,21 @@ def set_pot(atoms,calc,desired_U):
         nel_data['nelect'] = []
         nel_data['potential'] = []
         nel_data['energy'] = []
+        nel_data['she_U'] = she_U
+        nel_data['tolerance_U'] = tolerance_U
         print('Running the first single point to get PZC')
         atoms.set_calculator(calc)
         atoms.get_potential_energy()
-        
+
         # store info from the first single point
-        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+        nel_data['potential'].append(get_wf_implicit('./')-she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
         pickle.dump(nel_data,open('nelect_data.pkl','wb'))
 
     # no need to run further optimization if you're already at the desired potential
-    if abs(nel_data['potential'][-1]-desired_U) < _tolerance_U:
+    if abs(nel_data['potential'][-1]-desired_U) < tolerance_U:
         return
 
     if len(nel_data['nelect']) < 2:
@@ -762,7 +808,7 @@ def set_pot(atoms,calc,desired_U):
         atoms.set_calculator(calc)
         atoms.get_potential_energy()
 
-        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+        nel_data['potential'].append(get_wf_implicit('./')-she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -771,78 +817,29 @@ def set_pot(atoms,calc,desired_U):
     #start the optimization, initialize vars
     max_iter = 20
     n_iter = 0
-    while abs(nel_data['potential'][-1]-desired_U) > _tolerance_U:
+    while abs(nel_data['potential'][-1]-desired_U) > tolerance_U:
         n_iter += 1
         if n_iter > max_iter:
             print('Error: set_pot did not converge after %d iterations' % max_iter)
             print('Last potential: %.4f V, desired: %.4f V' % (nel_data['potential'][-1], desired_U))
             sys.exit()
 
-        # Newton's method to optimize NELECT
-        if nel_data['nelect'][-1] == nel_data['nelect'][-2]:
-            # NELECT didn't change -- perturb by a meaningful amount
-            # based on the last known gradient to escape
-            calc.float_params['nelect'] = nel_data['nelect'][-1] + 0.1
-            atoms.set_calculator(calc)
-            atoms.get_potential_energy()
-
-            nel_data['potential'].append(get_wf_implicit('./')-_she_U)
-            nel_data['energy'].append(atoms.get_potential_energy())
-            nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
-            nel_data['nelect'].append(nel_out)
-            pickle.dump(nel_data,open('nelect_data.pkl','wb'))
-            continue
-
-        if len(nel_data['potential']) < 3:
-            # only two points to estimate gradient
-            grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
-            grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
-            if abs(grad_denom) < 0.0001:
-                # gradient is unreliable, take a small fixed step instead
-                new_nel = nel_data['nelect'][-1] + 0.1
-                calc.float_params['nelect'] = new_nel
-                atoms.set_calculator(calc)
-                atoms.get_potential_energy()
-
-                nel_data['potential'].append(get_wf_implicit('./')-_she_U)
-                nel_data['energy'].append(atoms.get_potential_energy())
-                nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
-                nel_data['nelect'].append(nel_out)
-                pickle.dump(nel_data,open('nelect_data.pkl','wb'))
-                continue
-            else:
-                # if grad_denom is not almost zero,
-                # calculate a gradient normally
-                grad = grad_numer/grad_denom
-        else:
-            # use the last 3 points rather than last two
-            # to estimate gradient
-            x,y,grad,intercept = get_line(nel_data['nelect'][-3:],nel_data['potential'][-3:])
-        y = nel_data['potential'][-1]-desired_U
-        diff = abs(y)**2/(y*grad) # how much to change NELECT by this step
-
-        # don't take too big of a step ..
-        # can happen if two subsequent steps are too close together
-        # again, shouldn't be possible, but just make sure
-        if diff > 5.0:
-            diff = 0.75
-        elif diff < -5.0:
-            diff = -0.75
-
-        # update nelect
-        new_nel = nel_data['nelect'][-1] - diff
+        # Newton's method to optimize NELECT (see _next_nelect for the
+        # branch logic: equal-nelect escape, two-point gradient with a
+        # tiny-denominator escape, or 3-point linear-fit gradient)
+        new_nel = _next_nelect(nel_data, desired_U)
 
         #check if nelect is nan
         if math.isnan(new_nel):
             print('Error: Check NELECT (nan)')
             sys.exit()
 
-        # check guess from newton's method
+        # run VASP with the proposed NELECT and record the result
         calc.float_params['nelect'] = new_nel
         atoms.set_calculator(calc)
         atoms.get_potential_energy()
 
-        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+        nel_data['potential'].append(get_wf_implicit('./')-she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -851,9 +848,10 @@ def set_pot(atoms,calc,desired_U):
     calc.bool_params['lwave']=True
 
 def get_closest(ref,atoms,ind,mic=True):
+    """Find the index of the closest atom between two states, making sure
+    that the symbol is the same.
+    """
     from ase.geometry import get_distances
-    # find the index of the closest atom between two states
-    # making sure that the symbol is the same
     if not mic:
         pbc=(False,False,False)
     else:
@@ -871,9 +869,10 @@ def get_closest(ref,atoms,ind,mic=True):
     return dists[0][0]
 
 def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
+    """Used to reindex atoms in reindex_atoms to match those in ref_atoms.
+    Necessary for e.g. NEB interpolation.
+    """
     from ase.io import read
-    # used to reindex atoms in reindex_atoms to match those in 
-    # ref_atoms. Necessary for e.g. NEB interpolation.
     for atom in reindex_atoms:
         if atom.index in manual_skip_atoms:
             continue
@@ -884,24 +883,47 @@ def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
             pos_swap(reindex_atoms,closest_ind,atom.index)
     return reindex_atoms
 
-def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
-    ############################################################################
-    # Script to perform a geometry optimization at constant potential. This
-    # routine, along with the other const_U routines in this package, are 
-    # designed to handle checkpointing smoothly.
-    ############################################################################
-    #
-    ############################################################################
-    # Expects an atoms object, a calculator object, and a desired potential.
-    # All const_U routines in this package use ASE -- see the ASE website for
-    # more details on how to set up atoms and calculator objects.
-    #
-    # You should set the specific calculator parameters that you want in the 
-    # calculator object that is passed to this routine (e.g. ENCUT, kpts, ...).
-    ############################################################################
+def const_U_relax(atoms,calc,desired_U,ediffg=0.05,optimizer='vasp',iopt=2,ediff=None,she_U=None,tolerance_U=None):
+    """Script to perform a geometry optimization at constant potential. This
+    routine, along with the other const_U routines in this package, are
+    designed to handle checkpointing smoothly.
+
+    Expects an atoms object, a calculator object, and a desired potential.
+    All const_U routines in this package use ASE -- see the ASE website for
+    more details on how to set up atoms and calculator objects.
+
+    You should set the specific calculator parameters that you want in the
+    calculator object that is passed to this routine (e.g. ENCUT, kpts, ...).
+
+    Optional arguments:
+    optimizer   -- 'vasp' (default) uses VASP's internal optimizer, exactly
+                   as before. 'vtst' hands the geometry steps to the VTST
+                   optimizer compiled into VASP via IBRION=3/POTIM=0/IOPT
+                   (same pattern as const_U_dimer, but with ICHAIN=0).
+    iopt        -- VTST optimizer selector, only used when optimizer='vtst'.
+                   2 = CG (default), 7 = FIRE.
+                   https://theory.cm.utexas.edu/vtsttools/optimizers.html
+    ediff       -- electronic convergence for the geometry steps. Default
+                   (None) keeps current behavior on the 'vasp' path and uses
+                   1e-5 on the 'vtst' path.
+    she_U       -- SHE reference potential, in V. Default (None) resolves
+                   to the module-level common._she_U at call time. Passed
+                   through to set_pot.
+    tolerance_U -- potential convergence tolerance, in V. Default (None)
+                   resolves to the module-level common._tolerance_U at
+                   call time. Passed through to set_pot.
+    """
 
     import os,sys,pickle,math
-    
+
+    if she_U is None:
+        she_U = _she_U
+    if tolerance_U is None:
+        tolerance_U = _tolerance_U
+
+    if optimizer not in ('vasp','vtst'):
+        raise ValueError("optimizer must be 'vasp' or 'vtst', got %r" % (optimizer,))
+
     # ensure the force cutoff is set properly
     calc.float_params['ediffg'] = -1*ediffg
     atoms.set_calculator(calc)
@@ -913,8 +935,37 @@ def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
         if i > 10:
             print('Stuck in a loop -- bug report?')
             exit()
+
+        if optimizer == 'vtst' and i > 1:
+            # force ASE to re-run VASP by clearing cached results
+            # (same workaround as const_U_dimer)
+            if hasattr(atoms, 'calc') and hasattr(atoms.calc, 'results'):
+                atoms.calc.results = {}
+
         # first optimize NELECT
-        set_pot(atoms,calc,desired_U)
+        # (set_pot resets IBRION=1, ICHAIN=0, IOPT=0, EDIFF=1e-4, NSW=0)
+        set_pot(atoms,calc,desired_U,she_U=she_U,tolerance_U=tolerance_U)
+
+        if optimizer == 'vtst':
+            # hand geometry steps to the VTST optimizer compiled into VASP:
+            # IBRION 3 == molecular dynamics, POTIM 0 == zero time step so
+            # VASP itself never moves the ions; ICHAIN 0 == no chain method
+            # (plain relaxation, unlike the dimer); IOPT selects the VTST
+            # optimizer (2 = CG, 7 = FIRE). VTST respects the POSCAR
+            # selective dynamics flags, so FixAtoms constraints still apply.
+            # details: https://theory.cm.utexas.edu/vtsttools/optimizers.html
+            calc.int_params['ichain'] = 0
+            calc.int_params['ibrion'] = 3
+            calc.float_params['potim'] = 0
+            calc.int_params['iopt'] = iopt
+            # force-based optimizers want forces converged tighter than the
+            # 1e-4 that set_pot leaves behind, but the VASPsol++ LPB solver
+            # bases its convergence cutoff on EDIFF and struggles much below
+            # 1e-5, so default to 1e-5 rather than the dimer's 1e-8
+            calc.exp_params['ediff'] = 1e-5 if ediff is None else ediff
+        elif ediff is not None:
+            calc.exp_params['ediff'] = ediff
+
         calc.int_params['nsw'] = 300
         calc.bool_params['lwave'] = True
         nel_data = pickle.load(open('./nelect_data.pkl','rb'))
@@ -925,7 +976,7 @@ def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
         atoms.get_potential_energy() # calls VASP
 
         # update NELECT history
-        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+        nel_data['potential'].append(get_wf_implicit('./')-she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -936,38 +987,48 @@ def const_U_relax(atoms,calc,desired_U,ediffg=0.05):
         atoms.write('iter%02d.traj'%i)
 
         # check convergence criteria: max forces, and current potential
-        if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < _tolerance_U:
+        if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-she_U - desired_U) < tolerance_U:
             converged = 1
         else:
             print('Not yet converged')
-            print('U = %.2f V vs SHE'%(float(get_wf_implicit('./'))-_she_U))
+            print('U = %.2f V vs SHE'%(float(get_wf_implicit('./'))-she_U))
             print('max force = %.2f eV/A'%fmax(atoms))
         sys.stdout.flush()
 
     print('\nFinished!\n')
 
 
-def const_U_dimer(atoms,calc,desired_U,ediff=1e-8,ediffg=0.05,iopt=2):
-    ############################################################################
-    # Script to locate transition state at constant potential using
-    # the Dimer method. See https://theory.cm.utexas.edu/vtsttools/dimer.html
-    # for more details on the Dimer method.
-    ############################################################################
-    #
-    ############################################################################
-    # Expects an atoms object, a calculator object, and a desired potential.
-    #
-    # All const_U routines in this package use ASE -- see the ASE website for
-    # more details on how to set up atoms and calculator objects.
-    #
-    # You should set the specific values of IOPT etc that you want in the 
-    # calculator object that is passed to this routine.
-    #
-    # Ideally, you should also already have a MODECAR file created, as 
-    # convergence is bad without a good initial guess in my experience.
-    ############################################################################
+def const_U_dimer(atoms,calc,desired_U,ediff=1e-5,ediffg=0.05,iopt=2,she_U=None,tolerance_U=None):
+    """Script to locate transition state at constant potential using
+    the Dimer method. See https://theory.cm.utexas.edu/vtsttools/dimer.html
+    for more details on the Dimer method.
+
+    Expects an atoms object, a calculator object, and a desired potential.
+
+    All const_U routines in this package use ASE -- see the ASE website for
+    more details on how to set up atoms and calculator objects.
+
+    You should set the specific values of IOPT etc that you want in the
+    calculator object that is passed to this routine.
+
+    Ideally, you should also already have a MODECAR file created, as
+    convergence is bad without a good initial guess in my experience.
+
+    Optional arguments:
+    she_U       -- SHE reference potential, in V. Default (None) resolves
+                   to the module-level common._she_U at call time. Passed
+                   through to set_pot.
+    tolerance_U -- potential convergence tolerance, in V. Default (None)
+                   resolves to the module-level common._tolerance_U at
+                   call time. Passed through to set_pot.
+    """
 
     import os,sys,pickle,math
+
+    if she_U is None:
+        she_U = _she_U
+    if tolerance_U is None:
+        tolerance_U = _tolerance_U
 
     # set required flags for Dimer method, if they're not already set
     calc.float_params['ediffg'] = -1*ediffg
@@ -989,7 +1050,7 @@ def const_U_dimer(atoms,calc,desired_U,ediff=1e-8,ediffg=0.05,iopt=2):
             # force ASE to re-run VASP by clearing cached results
             if hasattr(atoms, 'calc') and hasattr(atoms.calc, 'results'):
                 atoms.calc.results = {}
-        set_pot(atoms,calc,desired_U)
+        set_pot(atoms,calc,desired_U,she_U=she_U,tolerance_U=tolerance_U)
 
         # ICHAIN 2 == Dimer method
         calc.int_params['ichain'] = 2
@@ -1008,8 +1069,10 @@ def const_U_dimer(atoms,calc,desired_U,ediff=1e-8,ediffg=0.05,iopt=2):
         # details: https://theory.cm.utexas.edu/vtsttools/optimizers.html
         calc.int_params['iopt'] = iopt
 
-        # ediff = 1e-8 needed for accurate estimation of forces
-        # this gets set to 1e-4 during the NELECT optimization routine
+        # a tight ediff is needed for accurate estimation of forces
+        # (it gets set to 1e-4 during the NELECT optimization routine),
+        # but the VASPsol++ LPB solver bases its convergence cutoff on
+        # EDIFF and struggles much below 1e-5, hence the 1e-5 default
         calc.exp_params['ediff'] = ediff
         calc.int_params['nsw'] = 300
         calc.bool_params['lwave'] = True
@@ -1021,7 +1084,7 @@ def const_U_dimer(atoms,calc,desired_U,ediff=1e-8,ediffg=0.05,iopt=2):
         atoms.get_potential_energy()
 
         # update NELECT history
-        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+        nel_data['potential'].append(get_wf_implicit('./')-she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -1035,40 +1098,74 @@ def const_U_dimer(atoms,calc,desired_U,ediff=1e-8,ediffg=0.05,iopt=2):
         atoms.write('iter%02d.traj'%i)
 
         # check convergence criteria: max forces, and current potential
-        if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < _tolerance_U:
+        if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-she_U - desired_U) < tolerance_U:
             converged = 1
         else:
             print('Not yet converged')
-            print('U = %.2f V vs SHE'%(float(get_wf_implicit('./'))-_she_U))
+            print('U = %.2f V vs SHE'%(float(get_wf_implicit('./'))-she_U))
             print('max force = %.2f eV/A'%fmax(atoms))
         sys.stdout.flush()
 
     print('\nFinished!\n')
 
-def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
-    ############################################################################
-    # Script to perform a geometry optimization with a fixed bond length 
-    # constraint. This can be seen as an alternative to the dimer method, 
-    # provided your reaction pathway is roughly one dimensional.
-    ############################################################################
-    #
-    ############################################################################
-    # Expects an atoms object, a calculator object, a desired potential, and
-    # the indices of the two atoms to be fixed during geometry optimization.
-    #
-    # All const_U routines in this package use ASE -- see the ASE website for
-    # more details on how to set up atoms and calculator objects.
-    #
-    # You should set the specific calculator parameters that you want in the 
-    # calculator object that is passed to this routine (e.g. ENCUT, kpts, ...).
-    #
-    # Optional argument: z_cutoff specifices a z coordinate below which all
-    # atoms will be fixed during geometry optimization. Alternately, you can
-    # just fix the atoms you want and pass that atoms object into this routine.
-    ############################################################################
+def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05,optimizer='ase',ase_optimizer='bfgs',she_U=None,tolerance_U=None):
+    """Script to perform a geometry optimization with a fixed bond length
+    constraint. This can be seen as an alternative to the dimer method,
+    provided your reaction pathway is roughly one dimensional.
+
+    Expects an atoms object, a calculator object, a desired potential, and
+    the indices of the two atoms to be fixed during geometry optimization.
+
+    All const_U routines in this package use ASE -- see the ASE website for
+    more details on how to set up atoms and calculator objects.
+
+    You should set the specific calculator parameters that you want in the
+    calculator object that is passed to this routine (e.g. ENCUT, kpts, ...).
+
+    Optional argument: z_cutoff specifices a z coordinate below which all
+    atoms will be fixed during geometry optimization. Alternately, you can
+    just fix the atoms you want and pass that atoms object into this routine.
+
+    Optional arguments:
+    optimizer     -- must be 'ase'. 'vtst' is rejected with an explanation:
+                      the bond-length constraint only exists on the ASE side,
+                      so an in-VASP optimizer would silently drop it.
+    ase_optimizer -- 'bfgs' (default, current behavior) or 'fire'. FIRE is
+                      the same algorithm as VTST IOPT=7 but runs on the ASE
+                      side, so the bond constraint stays enforced.
+    she_U         -- SHE reference potential, in V. Default (None) resolves
+                      to the module-level common._she_U at call time.
+                      Passed through to set_pot.
+    tolerance_U   -- potential convergence tolerance, in V. Default (None)
+                      resolves to the module-level common._tolerance_U at
+                      call time. Passed through to set_pot.
+    """
     import os,sys,pickle,math,time
     from ase.constraints import FixBondLength,FixAtoms
-    from ase.optimize import QuasiNewton,BFGS
+    from ase.optimize import QuasiNewton,BFGS,FIRE
+
+    if she_U is None:
+        she_U = _she_U
+    if tolerance_U is None:
+        tolerance_U = _tolerance_U
+
+    if optimizer == 'vtst':
+        raise ValueError(
+            'const_U_FBL cannot use a VTST (in-VASP) optimizer: the fixed bond '
+            'length is enforced by ase.constraints.FixBondLength on the Python '
+            'side only. VTST optimizers (IBRION=3/POTIM=0/IOPT) move the ions '
+            "inside VASP, which never sees this constraint, and VASP's ICONST "
+            'constraint file is only active in molecular dynamics (IBRION=0), '
+            'not in VTST optimizations, so the constraint would be silently '
+            'dropped. The cost is real -- ASE-side stepping cannot use '
+            "VASP's density/wavefunction extrapolation between steps -- but "
+            'a native FBL algorithm would have to be added to VTST itself '
+            "(Fortran). If BFGS is failing to converge, use optimizer='ase' "
+            "with ase_optimizer='fire'.")
+    if optimizer != 'ase':
+        raise ValueError("optimizer must be 'ase' for const_U_FBL, got %r" % (optimizer,))
+    if ase_optimizer not in ('bfgs','fire'):
+        raise ValueError("ase_optimizer must be 'bfgs' or 'fire', got %r" % (ase_optimizer,))
 
     calc.float_params['ediffg'] = -1*ediffg
     atoms.set_calculator(calc)
@@ -1091,7 +1188,7 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
             print('Stuck in a loop -- bug report?')
             exit()
         # first optimize NELECT
-        set_pot(atoms,calc,desired_U)
+        set_pot(atoms,calc,desired_U,she_U=she_U,tolerance_U=tolerance_U)
         # calc.int_params['nsw'] = 300
         calc.bool_params['lwave'] = True
         nel_data = pickle.load(open('./nelect_data.pkl','rb'))
@@ -1101,14 +1198,19 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
         sys.stdout.flush()
         atoms.set_calculator(calc)
 
-        # Now run optimization using ASE optimizer.
-        # In my experience, linesearch methods fail to converge,
-        # which is why this uses regular old BFGS.
-        dyn = BFGS(atoms,trajectory='./qn.traj',logfile='./qn.log')
+        # Run optimization using an ASE optimizer, which enforces the
+        # FixBondLength constraint each step. In my experience, linesearch
+        # methods fail to converge, so the choices are regular old BFGS
+        # (default) or FIRE (same algorithm as VTST IOPT=7, but the bond
+        # constraint stays enforced on the ASE side).
+        if ase_optimizer == 'fire':
+            dyn = FIRE(atoms,trajectory='./qn.traj',logfile='./qn.log')
+        else:
+            dyn = BFGS(atoms,trajectory='./qn.traj',logfile='./qn.log')
         dyn.run(fmax=ediffg)
 
         # update NELECT history
-        nel_data['potential'].append(get_wf_implicit('./')-_she_U)
+        nel_data['potential'].append(get_wf_implicit('./')-she_U)
         nel_data['energy'].append(atoms.get_potential_energy())
         nel_out = float(greplines('grep NELECT OUTCAR')[0].split()[2])
         nel_data['nelect'].append(nel_out)
@@ -1119,11 +1221,11 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
         atoms.write('iter%02d.traj'%i)
 
         # check convergence criteria: max forces, and current potential
-        if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-_she_U - desired_U) < _tolerance_U:
+        if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-she_U - desired_U) < tolerance_U:
             converged = 1
         else:
             print('Not yet converged')
-            print('U = %.2f V vs SHE'%(float(get_wf_implicit('./'))-_she_U))
+            print('U = %.2f V vs SHE'%(float(get_wf_implicit('./'))-she_U))
             print('max force = %.2f eV/A'%fmax(atoms))
         sys.stdout.flush()
 
@@ -1131,16 +1233,14 @@ def const_U_FBL(atoms,calc,desired_U,ind1,ind2,z_cutoff=None,ediffg=0.05):
 
 
 def match_pbcs(fs_atoms,is_atoms,moving_atoms=[],tolerance=1.0):
-    # This function tries to match atoms across a reaction
-    # coordinate so that interpolation can be used without
-    # minimum image convention (which sometimes breaks)
-    #
-    # takes as input the FS and IS atoms, and a list of 
-    # atoms which you expect to move across the reaction 
-    # coordinate
-    #
-    # returns an updated FS atoms
+    """Try to match atoms across a reaction coordinate so that interpolation
+    can be used without minimum image convention (which sometimes breaks).
 
+    Takes as input the FS and IS atoms, and a list of atoms which you expect
+    to move across the reaction coordinate.
+
+    Returns an updated FS atoms.
+    """
     assert len(is_atoms)==len(fs_atoms)
 
     for i in range(len(is_atoms)):
@@ -1229,9 +1329,9 @@ def get_interp(atoms,end_inds,interp_ind,bl_1,bl_2,n_images=15):
 		i += 1
 
 def handle_restart():
-    # short script that prepares a directory for a restarted
-    # job -- makes a backup directory and copies contents from
-    # the previous submission, etc.
+    """Short script that prepares a directory for a restarted job -- makes a
+    backup directory and copies contents from the previous submission, etc.
+    """
     import os
     if not os.path.exists('./OUTCAR'):
         return False # job has not run here
@@ -1249,9 +1349,11 @@ def handle_restart():
     os.system('rm WAVECAR')
 
 def get_nearest_neighbors(atoms, scale=1.1):
-    # Returns a dict mapping each atom index to a list of its nearest neighbor indices.
-    # Neighbor criterion: distance < scale * (r_i + r_j)
-	# where r_i and r_j are the covalent radii of each respective atom
+    """Returns a dict mapping each atom index to a list of its nearest neighbor indices.
+
+    Neighbor criterion: distance < scale * (r_i + r_j) where r_i and r_j are
+    the covalent radii of each respective atom.
+    """
     from ase.data import covalent_radii
     import numpy as np
 
