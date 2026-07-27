@@ -883,6 +883,69 @@ def reindex_atoms(ref_atoms,reindex_atoms,manual_skip_atoms=[]):
             pos_swap(reindex_atoms,closest_ind,atom.index)
     return reindex_atoms
 
+# files worth snapshotting between runs. WAVECAR/CHGCAR are deliberately
+# excluded -- they are large and are not useful after the geometry moves.
+_BACKUP_FILES = ['INCAR','KPOINTS','POSCAR','CONTCAR','OUTCAR','OSZICAR',
+                 'XDATCAR','vasprun.xml','opt.log','nelect_data.pkl']
+
+# extra files written by the VTST dimer method (ICHAIN=2)
+_DIMER_BACKUP_FILES = _BACKUP_FILES + ['CENTCAR','DIMCAR','MODECAR','NEWMODECAR']
+
+
+def _next_backup_path(prefix='backup'):
+    """Return the first unused '<prefix>_NN' directory name in the cwd.
+
+    Numbering continues past the highest existing index rather than
+    counting directories, so a gap (e.g. backup_01 deleted by hand) does
+    not cause a collision with an existing backup.
+    """
+    import os,glob
+    i = 0
+    for d in glob.glob(prefix+'_[0-9][0-9]'):
+        try:
+            i = max(i,int(d.rsplit('_',1)[-1])+1)
+        except ValueError:
+            continue
+    while os.path.exists('%s_%02d'%(prefix,i)):
+        i += 1
+    return '%s_%02d'%(prefix,i)
+
+
+def make_backup(files=None,extra=(),prefix='backup',path=None,quiet=False):
+    """Copy the given files into a fresh backup directory, and return its path.
+
+    Files that do not exist are skipped silently -- the file lists are
+    supersets covering both plain relaxations and dimer runs, so a missing
+    DIMCAR (say) is normal rather than an error.
+
+    Optional arguments:
+    files  -- list of filenames to copy. Default (None) is _BACKUP_FILES.
+    extra  -- additional filenames to copy, appended to `files`. Handy for
+              per-iteration artifacts such as 'iter03.traj'.
+    prefix -- directory prefix, so backups land in <prefix>_00, _01, ...
+              Default 'backup'.
+    path   -- explicit destination directory. Default (None) picks the next
+              free '<prefix>_NN'. Must not already exist.
+    quiet  -- suppress the one-line summary printed on success.
+    """
+    import os,shutil,sys
+    if files is None:
+        files = _BACKUP_FILES
+    if path is None:
+        path = _next_backup_path(prefix)
+    os.makedirs(path)
+
+    n = 0
+    for f in list(files)+list(extra):
+        if os.path.isfile(f):
+            shutil.copy2(f,os.path.join(path,os.path.basename(f)))
+            n += 1
+    if not quiet:
+        print('Backed up %i files to %s'%(n,path))
+        sys.stdout.flush()
+    return path
+
+
 def const_U_relax(atoms,calc,desired_U,ediffg=0.05,optimizer='vasp',iopt=2,ediff=None,she_U=None,tolerance_U=None):
     """Script to perform a geometry optimization at constant potential. This
     routine, along with the other const_U routines in this package, are
@@ -998,7 +1061,7 @@ def const_U_relax(atoms,calc,desired_U,ediffg=0.05,optimizer='vasp',iopt=2,ediff
     print('\nFinished!\n')
 
 
-def const_U_dimer(atoms,calc,desired_U,ediff=1e-5,ediffg=0.05,iopt=2,she_U=None,tolerance_U=None):
+def const_U_dimer(atoms,calc,desired_U,ediff=1e-5,ediffg=0.05,iopt=2,she_U=None,tolerance_U=None,backup=True,backup_files=None):
     """Script to locate transition state at constant potential using
     the Dimer method. See https://theory.cm.utexas.edu/vtsttools/dimer.html
     for more details on the Dimer method.
@@ -1021,6 +1084,12 @@ def const_U_dimer(atoms,calc,desired_U,ediff=1e-5,ediffg=0.05,iopt=2,she_U=None,
     tolerance_U -- potential convergence tolerance, in V. Default (None)
                    resolves to the module-level common._tolerance_U at
                    call time. Passed through to set_pot.
+    backup      -- if True (default), snapshot each NSW=300 dimer run into
+                   a fresh backup_NN directory before the restart files are
+                   overwritten. Set False to disable.
+    backup_files -- list of filenames to snapshot. Default (None) uses
+                   common._DIMER_BACKUP_FILES. Pass a shorter list to save
+                   disk if vasprun.xml/OUTCAR get unwieldy.
     """
 
     import os,sys,pickle,math
@@ -1029,6 +1098,8 @@ def const_U_dimer(atoms,calc,desired_U,ediff=1e-5,ediffg=0.05,iopt=2,she_U=None,
         she_U = _she_U
     if tolerance_U is None:
         tolerance_U = _tolerance_U
+    if backup_files is None:
+        backup_files = _DIMER_BACKUP_FILES
 
     # set required flags for Dimer method, if they're not already set
     calc.float_params['ediffg'] = -1*ediffg
@@ -1090,12 +1161,24 @@ def const_U_dimer(atoms,calc,desired_U,ediff=1e-5,ediffg=0.05,iopt=2,she_U=None,
         nel_data['nelect'].append(nel_out)
         pickle.dump(nel_data,open('nelect_data.pkl','wb'))
 
+        atoms.write('iter%02d.traj'%i)
+
+        # Snapshot the run *before* the restart shuffle below overwrites
+        # POSCAR/MODECAR, so backup_NN holds a self-consistent record of
+        # this pass: the geometry and mode it started from, plus the
+        # OUTCAR/DIMCAR/CENTCAR/NEWMODECAR it produced. One backup per
+        # iteration is exactly one NSW=300 dimer run at fixed NELECT --
+        # i.e. the point where the potential gets reset and the search
+        # resumes. The next call to set_pot clobbers OUTCAR/DIMCAR with
+        # NSW=0 single points, which is why this cannot wait.
+        if backup:
+            make_backup(backup_files,extra=['iter%02d.traj'%i])
+
         # CENTCAR and CONTCAR should be similar...
         # but CENTCAR is technically the write one to restart from
         os.system('cp CENTCAR POSCAR')
         os.system('cp MODECAR oldMODECAR')
         os.system('cp NEWMODECAR MODECAR')
-        atoms.write('iter%02d.traj'%i)
 
         # check convergence criteria: max forces, and current potential
         if fmax(atoms) < ediffg and abs(float(get_wf_implicit('./'))-she_U - desired_U) < tolerance_U:
@@ -1328,25 +1411,37 @@ def get_interp(atoms,end_inds,interp_ind,bl_1,bl_2,n_images=15):
 		atoms.write('%s/init.traj'%dir)
 		i += 1
 
-def handle_restart():
+def handle_restart(dimer=False):
     """Short script that prepares a directory for a restarted job -- makes a
     backup directory and copies contents from the previous submission, etc.
+
+    Use this at the top of a driver script to catch the case the in-loop
+    backups cannot: a job killed by walltime part way through a VASP run,
+    which never reaches the end-of-iteration snapshot in const_U_dimer.
+
+    Optional arguments:
+    dimer -- if True, also carry over the VTST dimer files (CENTCAR,
+             DIMCAR, MODECAR, NEWMODECAR) into the backup, and restart
+             from CENTCAR/NEWMODECAR rather than CONTCAR. Default False
+             keeps the plain-relaxation behavior.
     """
     import os
     if not os.path.exists('./OUTCAR'):
         return False # job has not run here
 
-    backups = greplines('find . -type d -name "backup*"')
-    if backups == '':
-        backups = 0
-    else:
-        backups = len(backups)
+    backup_path = make_backup(_DIMER_BACKUP_FILES if dimer else _BACKUP_FILES)
 
-    backup_path = 'backup_%02d'%backups
-    os.mkdir(backup_path)
-    os.system('cp XDATCAR vasprun.xml OUTCAR opt.log CONTCAR POSCAR %s'%backup_path)
-    os.system('cp CONTCAR POSCAR')
-    os.system('rm WAVECAR')
+    if dimer and os.path.isfile('CENTCAR'):
+        # CENTCAR is the dimer center, and NEWMODECAR the mode it ended on
+        os.system('cp CENTCAR POSCAR')
+        if os.path.isfile('NEWMODECAR'):
+            os.system('cp MODECAR oldMODECAR')
+            os.system('cp NEWMODECAR MODECAR')
+    else:
+        os.system('cp CONTCAR POSCAR')
+    if os.path.isfile('WAVECAR'):
+        os.remove('WAVECAR')
+    return backup_path
 
 def get_nearest_neighbors(atoms, scale=1.1):
     """Returns a dict mapping each atom index to a list of its nearest neighbor indices.
