@@ -695,43 +695,68 @@ def fmax(atoms):
     forces = atoms.get_forces()
     return max(np.linalg.norm(forces[i]) for i in unconstrained)
 
-def _next_nelect(nel_data, desired_U):
+def _next_nelect(nel_data, desired_U, fallback_slope=3.2, min_step=1e-3):
     """Pure helper: given the NELECT/potential history so far, return the
     proposed next NELECT value for set_pot's Newton-iteration loop.
 
-    Mirrors the logic previously inlined in set_pot's while loop:
-      - if the last two 'nelect' entries are equal, perturb by +0.1 to
-        escape (the two-point gradient estimate would be undefined).
+      - if the last two 'nelect' entries are equal (const_U_relax appends
+        one entry per relaxation at unchanged NELECT) or the two-point
+        NELECT denominator is too small to trust, take a Newton step
+        toward desired_U using the slope dN/dU of the most recent two
+        entries with distinct NELECT. If that slope is missing, positive
+        or outside 1-6 e/V, use fallback_slope (e/V, magnitude; the
+        potential falls as electrons are added). Direction follows the
+        sign of the potential error.
       - elif fewer than 3 potential entries: estimate the gradient from
-        the last two points; if the NELECT denominator is too small to
-        trust, perturb by +0.1 instead.
+        the last two points.
       - else: estimate the gradient via a 3-point linear fit
-        (common.get_line) over the last three (nelect, potential) points.
+        (common.get_line) over the last three (nelect, potential) points;
+        a zero, tiny (<1e-3 V/e) or non-finite gradient uses fallback_slope as above.
       - apply a Newton step using the estimated gradient, clamped to
         +/-0.75 if the raw step would exceed +/-5.0.
+      - never return a NELECT closer than min_step (e) to the last one,
+        so the calculator always sees a change and re-runs (the old
+        "stuck" bug: an unchanged NELECT returns the cached result at
+        once and nelect_data.pkl fills with duplicate entries).
     """
+    import math
     last_nelect = nel_data['nelect'][-1]
+    y = nel_data['potential'][-1]-desired_U
+
+    def fallback_step():
+        # slope dN/dU from the latest entry vs. the most recent entry with
+        # a distinct NELECT; sanity-bounded, else the generic fallback
+        dNdU = -abs(fallback_slope)
+        for j in range(len(nel_data['nelect'])-2,-1,-1):
+            dN = last_nelect-nel_data['nelect'][j]
+            dU = nel_data['potential'][-1]-nel_data['potential'][j]
+            if abs(dN) > 1e-4:
+                if dU != 0 and 1.0 <= abs(dN/dU) <= 6.0 and dN*dU < 0:
+                    dNdU = dN/dU
+                break
+        return -y*dNdU
 
     if nel_data['nelect'][-1] == nel_data['nelect'][-2]:
-        # NELECT didn't change -- perturb by a meaningful amount
-        # based on the last known gradient to escape
-        return last_nelect + 0.1
-
-    if len(nel_data['potential']) < 3:
-        # only two points to estimate gradient
-        grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
-        grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
-        if abs(grad_denom) < 0.0001:
-            # gradient is unreliable, take a small fixed step instead
-            return last_nelect + 0.1
-        # if grad_denom is not almost zero, calculate a gradient normally
-        grad = grad_numer/grad_denom
+        # NELECT didn't change (post-relaxation entry): Newton step
+        diff = -fallback_step()
     else:
-        # use the last 3 points rather than last two to estimate gradient
-        x,y,grad,intercept = get_line(nel_data['nelect'][-3:],nel_data['potential'][-3:])
+        if len(nel_data['potential']) < 3:
+            # only two points to estimate gradient
+            grad_numer = nel_data['potential'][-2]-nel_data['potential'][-1]
+            grad_denom = nel_data['nelect'][-2]-nel_data['nelect'][-1]
+            if abs(grad_denom) < 0.0001:
+                # gradient is unreliable, use the fallback slope instead
+                grad = 0.0
+            else:
+                grad = grad_numer/grad_denom
+        else:
+            # use the last 3 points rather than last two to estimate gradient
+            x,yy,grad,intercept = get_line(nel_data['nelect'][-3:],nel_data['potential'][-3:])
 
-    y = nel_data['potential'][-1]-desired_U
-    diff = abs(y)**2/(y*grad)  # how much to change NELECT by this step
+        if not math.isfinite(grad) or abs(grad) < 1e-3:
+            diff = -fallback_step()
+        else:
+            diff = abs(y)**2/(y*grad)  # how much to change NELECT by this step
 
     # don't take too big of a step ..
     # can happen if two subsequent steps are too close together
@@ -741,7 +766,11 @@ def _next_nelect(nel_data, desired_U):
     elif diff < -5.0:
         diff = -0.75
 
-    return last_nelect - diff
+    new_nelect = last_nelect - diff
+    if abs(new_nelect-last_nelect) < min_step:
+        # step too small for the calculator to notice: step toward desired_U
+        new_nelect = last_nelect + math.copysign(min_step, y if y != 0 else 1.0)
+    return new_nelect
 
 def set_pot(atoms,calc,desired_U,she_U=None,tolerance_U=None):
     """Determine NELECT required to have potential=desired_U.
@@ -832,6 +861,11 @@ def set_pot(atoms,calc,desired_U,she_U=None,tolerance_U=None):
         #check if nelect is nan
         if math.isnan(new_nel):
             print('Error: Check NELECT (nan)')
+            sys.exit()
+
+        # NELECT must change, or ASE returns the cached result and the loop spins
+        if abs(new_nel-nel_data['nelect'][-1]) < 1e-4:
+            print('Error: NELECT unchanged (%.4f), would not re-run VASP' % new_nel)
             sys.exit()
 
         # run VASP with the proposed NELECT and record the result
