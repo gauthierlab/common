@@ -436,7 +436,118 @@ def parse_doscar(fname='DOSCAR'):
             pdos[ia, 0] = cols.T
         start += nedos + 1
     return dict(efermi=efermi, nedos=nedos, natoms=natoms, ispin=ispin, orbitals=orbitals,
-                energy=energy, total=total, total_int=total_int, pdos=pdos)
+                energy=energy, total=total, total_int=total_int, pdos=pdos, source='DOSCAR')
+
+
+def doscar_has_dos(fname='DOSCAR'):
+    """True if fname exists and holds at least one DOS data row after the 6-line header.
+    False for a missing, empty or header-only DOSCAR (VASP aborted before writing the DOS)."""
+    import os
+    if not os.path.isfile(fname):
+        return False
+    with open(fname, 'r') as f:
+        for i, line in enumerate(f):
+            if i == 6:
+                return bool(line.split())
+    return False
+
+
+def parse_vasprun_dos(fname='vasprun.xml'):
+    """Parse the DOS of a VASP vasprun.xml (collinear, ISPIN 1 or 2, LORBIT 10 or 11) by
+    streaming it with ElementTree.iterparse: only <atominfo> and the last <dos> subtree are
+    kept in memory, every other element is dropped as soon as it closes.
+
+    Returns the same dict as parse_doscar (efermi, nedos, natoms, ispin, orbitals, energy,
+    total, total_int, pdos, with the same shapes, atom order and orbital names), plus
+    source = 'vasprun.xml' and symbols (atominfo order).
+    Raises ValueError if the XML is truncated/malformed (aborted run), has no <dos>, or has
+    the total DOS only (no <partial>, LORBIT not set).
+    vasprun.xml writes energies with 4 decimals and DOS values as fixed-point with 4 decimals,
+    DOSCAR energies with 3 decimals and DOS values as 4-significant-digit E format, so the two
+    sources agree to that rounding, not bit for bit.
+    """
+    import numpy as np
+    import xml.etree.ElementTree as ET
+    keep_tags = ('dos', 'atominfo')
+    stack, kept = [], 0
+    dos = atominfo = None
+    try:
+        for ev, el in ET.iterparse(fname, events=('start', 'end')):
+            if ev == 'start':
+                stack.append(el)
+                if el.tag in keep_tags:
+                    kept += 1
+                continue
+            stack.pop()
+            if el.tag in keep_tags:
+                kept -= 1
+                if el.tag == 'dos':
+                    dos = el                  # the last complete <dos> wins
+                else:
+                    atominfo = el
+            elif kept:
+                continue                      # inside a kept subtree
+            else:
+                el.clear()
+            if stack and len(stack[-1]) and stack[-1][-1] is el:
+                del stack[-1][-1]             # detach so memory stays flat
+    except ET.ParseError as e:
+        raise ValueError('%s is truncated or malformed (%s); aborted run? no DOS read' % (fname, e))
+    if dos is None:
+        raise ValueError('%s has no <dos> block (aborted run?)' % fname)
+    if atominfo is None:
+        raise ValueError('%s has no <atominfo> block' % fname)
+
+    natoms = int(atominfo.find('atoms').text)
+    symbols = None
+    aset = atominfo.find("array[@name='atoms']/set")
+    if aset is not None:
+        symbols = [rc.find('c').text.strip() for rc in aset.findall('rc')]
+
+    def _rows(s):
+        return np.array([[float(x) for x in r.text.split()] for r in s.findall('r')])
+
+    efermi = float(dos.find("i[@name='efermi']").text)
+    tsets = dos.findall('total/array/set/set')
+    if not tsets:
+        raise ValueError('%s <dos> has no total DOS' % fname)
+    ispin = len(tsets)
+    if ispin not in (1, 2):
+        raise ValueError('%s total DOS has %d spin sets (non-collinear?)' % (fname, ispin))
+    tot = [_rows(s) for s in tsets]
+    nedos = tot[0].shape[0]
+    if any(t.shape != (nedos, 3) for t in tot):
+        raise ValueError('%s total DOS spin sets have inconsistent shapes' % fname)
+    energy = tot[0][:, 0] - efermi
+    total = np.stack([t[:, 1] for t in tot], axis=1)
+    total_int = np.stack([t[:, 2] for t in tot], axis=1)
+
+    partial = dos.find('partial')
+    if partial is None:
+        raise ValueError('%s has the total DOS only (no <partial>; LORBIT not set?)' % fname)
+    fields = [f.text.strip() for f in partial.findall('array/field')]
+    norb = len(fields) - 1
+    layout = [orbs for (isp, orbs) in _DOS_LAYOUTS.values() if isp == ispin and len(orbs) == norb]
+    if not layout:
+        raise ValueError('%s: unsupported partial DOS fields %s (ISPIN %d)' % (fname, fields, ispin))
+    orbitals = layout[0]
+    ions = partial.findall('array/set/set')
+    if len(ions) != natoms:
+        raise ValueError('%s: partial DOS has %d ions, atominfo %d' % (fname, len(ions), natoms))
+    pdos = np.zeros((natoms, ispin, norb, nedos))
+    for ia, ion in enumerate(ions):
+        ssets = ion.findall('set')
+        if len(ssets) != ispin:
+            raise ValueError('%s: ion %d has %d spin sets, expected %d' % (fname, ia + 1, len(ssets), ispin))
+        for isp, s in enumerate(ssets):
+            b = _rows(s)
+            if b.shape != (nedos, norb + 1):
+                raise ValueError('%s: ion %d spin %d block shape %s, expected %s'
+                                 % (fname, ia + 1, isp + 1, b.shape, (nedos, norb + 1)))
+            pdos[ia, isp] = b[:, 1:].T
+    return dict(efermi=efermi, nedos=nedos, natoms=natoms, ispin=ispin, orbitals=orbitals,
+                energy=energy, total=total, total_int=total_int, pdos=pdos,
+                source='vasprun.xml', symbols=symbols)
 
 
 ### WRITE DOS0 CONTAINING TOTAL DOS (legacy text output, not used by get_dos) ###
@@ -509,7 +620,7 @@ def write_spin(lines, index, nedos, natoms, ncols, efermi):
 # convert DOSCAR into useable pickle files
 # bottom portion written by LDC; rewritten 2026-11-26 (in-memory parse, spin support)
 def get_dos(path='./'):
-    """Write per-atom DOS pickles from path/DOSCAR (no temporary files).
+    """Write per-atom DOS pickles from path/DOSCAR, or path/vasprun.xml as fallback (no temporary files).
 
     dos.pickle    list (natoms) of lists (NEDOS-1): per-atom DOS summed over orbitals,
                   and for ISPIN = 2 summed over up + down (both positive). VASP atom order.
@@ -519,6 +630,12 @@ def get_dos(path='./'):
                   'up' and 'down' arrays (natoms, norb, NEDOS-1), down POSITIVE,
                   total_up / total_down (block-0 total DOS), symbols (POSCAR order).
     Returns the parse_doscar dict.
+
+    Source: DOSCAR when it holds DOS data. When DOSCAR is missing, empty or header-only
+    (doscar_has_dos False), the DOS is read from vasprun.xml instead (parse_vasprun_dos,
+    streamed) and written to the same pickles in the same formats; the source is then also
+    recorded in dos_source.txt. dos_spin.pickle carries a 'source' key either way
+    ('DOSCAR' or 'vasprun.xml'). A DOSCAR with data that fails to parse still raises.
     """
     import numpy as np
     import os, pickle
@@ -526,14 +643,25 @@ def get_dos(path='./'):
     top = os.getcwd()
     os.chdir(path)
     try:
-        d = parse_doscar('DOSCAR')
+        if doscar_has_dos('DOSCAR'):
+            d = parse_doscar('DOSCAR')
+        elif os.path.isfile('vasprun.xml'):
+            d = parse_vasprun_dos('vasprun.xml')
+        else:
+            raise ValueError('%s: DOSCAR missing or header-only and no vasprun.xml'
+                             % os.path.abspath('.'))
+        src = d['source']
         natoms = d['natoms']
         symbols = None
         if os.path.exists('POSCAR'):
             atoms = read('POSCAR')
             if len(atoms) != natoms:
-                raise ValueError('POSCAR has %d atoms, DOSCAR %d' % (len(atoms), natoms))
+                raise ValueError('POSCAR has %d atoms, %s %d' % (len(atoms), src, natoms))
             symbols = atoms.get_chemical_symbols()
+            if src == 'vasprun.xml' and d.get('symbols') and d['symbols'] != symbols:
+                raise ValueError('POSCAR atom order differs from vasprun.xml atominfo')
+        elif src == 'vasprun.xml':
+            symbols = d.get('symbols')
         sl = slice(1, None)               # drop the first point (legacy NEDOS-1 length)
         pdos = d['pdos'][:, :, :, sl]
         total_dos = pdos.sum(axis=(1, 2))           # (natoms, NEDOS-1)
@@ -552,9 +680,14 @@ def get_dos(path='./'):
                        natoms=natoms, orbitals=d['orbitals'], symbols=symbols,
                        up=pdos[:, 0].copy(), down=pdos[:, 1].copy(),
                        total_up=d['total'][sl, 0].copy(), total_down=d['total'][sl, 1].copy(),
+                       source=src,
                        note='down channel positive; atom order = VASP POSCAR; '
                             'first DOSCAR point dropped as in dos.pickle'),
                   'dos_spin.pickle')
+        if src != 'DOSCAR':
+            with open('dos_source.txt', 'w') as f:
+                f.write('dos.pickle/energy.pickle%s read from %s (DOSCAR missing or header-only)\n'
+                        % ('/dos_spin.pickle' if d['ispin'] == 2 else '', src))
         print('pDOS: %s\nEnergy: %s%s' % (os.path.join(path, 'dos.pickle'),
               os.path.join(path, 'energy.pickle'),
               '\nSpin: ' + os.path.join(path, 'dos_spin.pickle') if d['ispin'] == 2 else ''))
