@@ -330,18 +330,52 @@ def scale_metal(atoms,a_old,a_new,old_sym=None,new_sym=None):
     return atoms
 
 # now for a few functions that get_dos depends on
-# taken from VTST, split_dos.py from Henkelman group
-def read_dosfile():
-    f = open("DOSCAR", 'r')
-    lines = f.readlines()
-    f.close()
+# originally from VTST split_dos.py (Henkelman group); rewritten 2026-11-26 to parse the
+# DOSCAR in memory and to handle spin-polarized (ISPIN = 2) files correctly.
+# Backup of the previous version: __init__.py.bak_pre_getdos_spin_20261126
+
+# column layout of the per-atom DOSCAR blocks (energy column excluded), keyed by the
+# total column count including energy: (ispin, orbital names)
+_DOS_LAYOUTS = {
+    4:  (1, ['s', 'p', 'd']),                                        # LORBIT 10
+    5:  (1, ['s', 'p', 'd', 'f']),                                   # LORBIT 10, f
+    7:  (2, ['s', 'p', 'd']),                                        # LORBIT 10, ISPIN 2
+    9:  (2, ['s', 'p', 'd', 'f']),                                   # LORBIT 10, ISPIN 2, f
+    10: (1, ['s', 'py', 'pz', 'px', 'dxy', 'dyz', 'dz2', 'dxz', 'dx2']),   # LORBIT 11
+    17: (1, ['s', 'py', 'pz', 'px', 'dxy', 'dyz', 'dz2', 'dxz', 'dx2',
+             'fy3x2', 'fxyz', 'fyz2', 'fz3', 'fxz2', 'fzx2', 'fx3']),     # LORBIT 11, f
+    19: (2, ['s', 'py', 'pz', 'px', 'dxy', 'dyz', 'dz2', 'dxz', 'dx2']),   # LORBIT 11, ISPIN 2
+    33: (2, ['s', 'py', 'pz', 'px', 'dxy', 'dyz', 'dz2', 'dxz', 'dx2',
+             'fy3x2', 'fxyz', 'fyz2', 'fz3', 'fxz2', 'fzx2', 'fx3']),     # LORBIT 11, ISPIN 2, f
+}
+
+
+def _dos_block(lines, start, nedos):
+    """nedos rows of floats starting at lines[start] -> 2D array. Handles VASP's
+    exponent-overflow form (e.g. 0.1234-100) by inserting the missing 'E'."""
+    import numpy as np
+    import re
+    rows = lines[start:start + nedos]
+    if len(rows) < nedos:
+        raise ValueError('DOSCAR truncated: block at line %d has %d of %d rows'
+                         % (start + 1, len(rows), nedos))
+    try:
+        return np.array([[float(x) for x in r.split()] for r in rows])
+    except ValueError:
+        fix = re.compile(r'(\d)([+-]\d{3})(?=\s|$)')
+        return np.array([[float(x) for x in fix.sub(r'\1E\2', r).split()] for r in rows])
+
+
+def read_dosfile(fname='DOSCAR'):
+    """Read DOSCAR. Returns (lines, index, natoms, nedos, efermi); index = 5 is the line
+    holding Emax Emin NEDOS E_F weight (kept for backward compatibility)."""
+    with open(fname, 'r') as f:
+        lines = f.readlines()
     index = 0
     natoms = int(lines[index].strip().split()[0])
     index = 5
     nedos = int(lines[index].strip().split()[2])
     efermi = float(lines[index].strip().split()[3])
-    # print natoms, nedos, efermi
-
     return lines, index, natoms, nedos, efermi
 
 ###READ POSCAR or CONTCAR and save pos
@@ -353,168 +387,180 @@ def read_posfile():
     except IOError:
         print("[__main__]: Couldn't open input file POSCAR, atomic positions will not be written...\n")
         atoms = []
-   
+
     return atoms
 
-### WRITE DOS0 CONTAINING TOTAL DOS ###
+
+def parse_doscar(fname='DOSCAR'):
+    """Parse a VASP DOSCAR (collinear, ISPIN 1 or 2, LORBIT 10 or 11) in memory.
+
+    Returns a dict:
+      efermi, nedos, natoms, ispin, orbitals (names),
+      energy      (nedos,)  E - E_F, all points
+      total       (nedos, ispin)  total DOS (block 0), per spin
+      total_int   (nedos, ispin)  integrated total DOS (block 0), per spin
+      pdos        (natoms, ispin, norb, nedos) projected DOS, VASP (POSCAR) atom order,
+                  spin index 0 = up, 1 = down; down channel POSITIVE as VASP writes it.
+    Spin-polarized LORBIT files interleave the channels per orbital:
+    s_up s_dn py_up py_dn ... ; that is what this de-interleaves.
+    """
+    import numpy as np
+    lines, index, natoms, nedos, efermi = read_dosfile(fname)
+    blk0 = _dos_block(lines, index + 1, nedos)
+    ispin0 = 2 if blk0.shape[1] == 5 else 1
+    energy = blk0[:, 0] - efermi
+    total = blk0[:, 1:1 + ispin0]
+    total_int = blk0[:, 1 + ispin0:1 + 2 * ispin0]
+
+    start = index + 1 + nedos            # header line of atom 1
+    if start + 1 >= len(lines):
+        raise ValueError('DOSCAR has no projected (per-atom) blocks (LORBIT not set?)')
+    ncols = len(lines[start + 1].split())
+    if ncols not in _DOS_LAYOUTS:
+        raise ValueError('unsupported DOSCAR per-atom column count %d (non-collinear?)' % ncols)
+    ispin, orbitals = _DOS_LAYOUTS[ncols]
+    if ispin != ispin0:
+        raise ValueError('per-atom columns (%d) imply ISPIN %d but block 0 implies ISPIN %d'
+                         % (ncols, ispin, ispin0))
+    norb = len(orbitals)
+    pdos = np.zeros((natoms, ispin, norb, nedos))
+    for ia in range(natoms):
+        b = _dos_block(lines, start + 1, nedos)
+        if b.shape[1] != ncols:
+            raise ValueError('atom %d block has %d columns, expected %d' % (ia + 1, b.shape[1], ncols))
+        cols = b[:, 1:]                   # (nedos, norb*ispin)
+        if ispin == 2:
+            pdos[ia, 0] = cols[:, 0::2].T     # up
+            pdos[ia, 1] = cols[:, 1::2].T     # down
+        else:
+            pdos[ia, 0] = cols.T
+        start += nedos + 1
+    return dict(efermi=efermi, nedos=nedos, natoms=natoms, ispin=ispin, orbitals=orbitals,
+                energy=energy, total=total, total_int=total_int, pdos=pdos)
+
+
+### WRITE DOS0 CONTAINING TOTAL DOS (legacy text output, not used by get_dos) ###
 def write_dos0(lines, index, nedos, efermi):
-    
     fdos = open("DOS0", 'w')
-    index +=1
+    index += 1
     line = lines[index+2].strip().split()
     ncols = int(len(line))
     fdos.write('# %d \n' % (ncols))
-
-    for n in range(1,nedos):
-        index +=1
-        e = float(lines[index].strip().split()[0])
-        e_f = e-efermi
-        fdos.write('%15.8f ' % (e_f))
-        
+    for n in range(1, nedos):
+        index += 1
+        f = lines[index].strip().split()
+        fdos.write('%15.8f ' % (float(f[0]) - efermi))
         for col in range(1, ncols):
-            dos = float(lines[index].strip().split()[col])
-            fdos.write('%15.8f ' % (dos))
-            col +=1  
-        fdos.write('\n ')          
-        n +=1  
+            fdos.write('%15.8f ' % (float(f[col])))
+        fdos.write('\n ')
+    fdos.close()
     return index
 
-### LOOP OVER SETS OF DOS, NATOMS ###
+### LOOP OVER SETS OF DOS, NATOMS (legacy text output, not used by get_dos) ###
 def write_nospin(lines, index, nedos, natoms, ncols, efermi):
     import numpy as np
-    
     atoms = read_posfile()
     if len(atoms) < natoms:
         pos = np.zeros((natoms, 3))
     else:
         pos = atoms.get_positions()
-
-    for i in range(1,natoms+1):
-        si = str(i)
-        
-    ## OPEN DOSi FOR WRITING ##
-        fdos = open("DOS"+si, 'w')
-        index +=2
-        ia = i -1
+    for i in range(1, natoms+1):
+        fdos = open("DOS"+str(i), 'w')
+        index += 2
+        ia = i - 1
         fdos.write('# %d \n' % (ncols))
         fdos.write('# %15.8f %15.8f %15.8f \n' % (pos[ia,0], pos[ia,1], pos[ia,2]))
-    
-    ### LOOP OVER NEDOS ###
-        for n in range(1,nedos):
-            index +=1
-            e = float(lines[index].strip().split()[0])
-            e_f = e-efermi
-            fdos.write('%15.8f ' % (e_f))
-            
+        for n in range(1, nedos):
+            index += 1
+            f = lines[index].strip().split()
+            fdos.write('%15.8f ' % (float(f[0]) - efermi))
             for col in range(1, ncols):
-                dos = float(lines[index].strip().split()[col])
-                fdos.write('%15.8f ' % (dos))
-                col +=1
-            fdos.write('\n ')              
-            n +=1
-        i+=1
-    fdos.close()
+                fdos.write('%15.8f ' % (float(f[col])))
+            fdos.write('\n ')
+        fdos.close()
 
 def write_spin(lines, index, nedos, natoms, ncols, efermi):
+    """Legacy text output (not used by get_dos). Columns per row: E-E_F, then
+    (up, -down) for each orbital; VASP interleaves s_up s_dn py_up py_dn ..."""
     import numpy as np
-    #pos=[]
     atoms = read_posfile()
     if len(atoms) < natoms:
         pos = np.zeros((natoms, 3))
     else:
         pos = atoms.get_positions()
-
-    nsites = (ncols -1)/2
-    
-    for i in range(1,natoms+1):
-        si = str(i)
-    ## OPEN DOSi FOR WRITING ##
-        fdos = open("DOS"+si, 'w')
-        index +=2
-        ia = i-1
+    nsites = (ncols - 1) // 2
+    for i in range(1, natoms+1):
+        fdos = open("DOS"+str(i), 'w')
+        index += 2
+        ia = i - 1
         fdos.write('# %d \n' % (ncols))
         fdos.write('# %15.8f %15.8f %15.8f \n' % (pos[ia,0], pos[ia,1], pos[ia,2]))
-    
-    ### LOOP OVER NEDOS ###
-        for n in range(1,nedos):
-            index +=1   
-            e = float(lines[index].strip().split()[0])
-            e_f = e-efermi
-            fdos.write('%15.8f ' % (e_f))
-            
-            for col in range(1, nsites):
-                dos_up = float(lines[index].strip().split()[col])
-                dos_down = float(lines[index].strip().split()[col+1])*-1
+        for n in range(1, nedos):
+            index += 1
+            f = lines[index].strip().split()
+            fdos.write('%15.8f ' % (float(f[0]) - efermi))
+            for k in range(nsites):
+                dos_up = float(f[1 + 2*k])
+                dos_down = float(f[2 + 2*k]) * -1
                 fdos.write('%15.8f %15.8f ' % (dos_up, dos_down))
-                col +=1
             fdos.write('\n ')
-            n +=1
-        i+=1
         fdos.close()
 
 # convert DOSCAR into useable pickle files
-# bottom portion written by LDC
+# bottom portion written by LDC; rewritten 2026-11-26 (in-memory parse, spin support)
 def get_dos(path='./'):
+    """Write per-atom DOS pickles from path/DOSCAR (no temporary files).
+
+    dos.pickle    list (natoms) of lists (NEDOS-1): per-atom DOS summed over orbitals,
+                  and for ISPIN = 2 summed over up + down (both positive). VASP atom order.
+    energy.pickle numpy array (NEDOS-1): E - E_F.
+    (Both as before: the first DOSCAR energy point is dropped, as the old split_dos code did.)
+    dos_spin.pickle  (ISPIN = 2 only) dict with energy, efermi, nedos, natoms, orbitals,
+                  'up' and 'down' arrays (natoms, norb, NEDOS-1), down POSITIVE,
+                  total_up / total_down (block-0 total DOS), symbols (POSCAR order).
+    Returns the parse_doscar dict.
+    """
     import numpy as np
+    import os, pickle
     from ase.io import read
-    import sys,os,pickle
     top = os.getcwd()
     os.chdir(path)
-    lines, index, natoms, nedos, efermi = read_dosfile()
-    index = write_dos0(lines, index, nedos, efermi)
+    try:
+        d = parse_doscar('DOSCAR')
+        natoms = d['natoms']
+        symbols = None
+        if os.path.exists('POSCAR'):
+            atoms = read('POSCAR')
+            if len(atoms) != natoms:
+                raise ValueError('POSCAR has %d atoms, DOSCAR %d' % (len(atoms), natoms))
+            symbols = atoms.get_chemical_symbols()
+        sl = slice(1, None)               # drop the first point (legacy NEDOS-1 length)
+        pdos = d['pdos'][:, :, :, sl]
+        total_dos = pdos.sum(axis=(1, 2))           # (natoms, NEDOS-1)
+        energy = d['energy'][sl]
 
-    ##Test if there a spin calculation was performed ##
-    line = lines[index+2].strip().split()
-    ncols = int(len(line)) 
-    if ncols==7 or ncols==19 or ncols==9 or ncols==33:
-        write_spin(lines, index, nedos, natoms, ncols, efermi)
-        is_spin=True
-    else: 
-        write_nospin(lines, index, nedos, natoms, ncols, efermi)
-        is_spin=False
-    # print("Spin unrestricted calculation: ", is_spin)
+        def _dump(obj, fname):
+            tmp = fname + '.tmp'
+            with open(tmp, 'wb') as f:
+                pickle.dump(obj, f)
+            os.replace(tmp, fname)
 
-    atoms = read('POSCAR')
-    dosatoms = range(len(atoms))
-    content = [0]*len(dosatoms)
-
-    for i in range(len(dosatoms)):
-        fname = 'DOS'+str(dosatoms[i]+1)
-        with open(fname) as f:
-            content[i] = f.readlines()[2:-1]  #read in energy and dos
-        f.close()
-
-    o2s = [0]*len(dosatoms) #number of oxygens in total; easy enough
-    for i in range(len(o2s)):  
-        o2s[i] = [0]*10  #10 different channels: energy + 1s + 3p + 5d orbitals
-        for j in range(len(o2s[i])):
-            o2s[i][j] = []  
-            for k in range(len(content[i])):
-                o2s[i][j].append(float(content[i][k].split()[j]))  #ith oxygen, jth channel, kth line in content
-
-    o2s = np.array(o2s)  #change the array to an numpy array so we can do fun stuff
-
-    total_dos = [0]*len(atoms)
-
-    for i in range(len(o2s)):
-        total_dos[i] = [0]*len(o2s[0][0])
-        for j in range(1,len(o2s[0])):
-            for k in range(len(o2s[0][0])):
-                total_dos[i][k] += o2s[i][j][k]
-
-    f = open('dos.pickle', 'wb')
-    pickle.dump(total_dos, f)
-    f.close()
-
-    f = open('energy.pickle', 'wb')
-    pickle.dump(o2s[0][0], f)
-    f.close()
-
-    for i in range(len(dosatoms)):
-        os.system('rm DOS'+str(dosatoms[i]+1))
-    os.system('rm DOS0')
-    print('pDOS: %s\nEnergy: %s'%(path+'dos.pickle',path+'energy.pickle'))
-    os.chdir(top)
+        _dump([list(map(float, row)) for row in total_dos], 'dos.pickle')
+        _dump(np.array(energy), 'energy.pickle')
+        if d['ispin'] == 2:
+            _dump(dict(energy=np.array(energy), efermi=d['efermi'], nedos=d['nedos'],
+                       natoms=natoms, orbitals=d['orbitals'], symbols=symbols,
+                       up=pdos[:, 0].copy(), down=pdos[:, 1].copy(),
+                       total_up=d['total'][sl, 0].copy(), total_down=d['total'][sl, 1].copy(),
+                       note='down channel positive; atom order = VASP POSCAR; '
+                            'first DOSCAR point dropped as in dos.pickle'),
+                  'dos_spin.pickle')
+        print('pDOS: %s\nEnergy: %s%s' % (os.path.join(path, 'dos.pickle'),
+              os.path.join(path, 'energy.pickle'),
+              '\nSpin: ' + os.path.join(path, 'dos_spin.pickle') if d['ispin'] == 2 else ''))
+        return d
+    finally:
+        os.chdir(top)
 
 
 # get_parab function is used by the next function, fed
